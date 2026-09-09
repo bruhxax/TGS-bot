@@ -1,0 +1,6 @@
+# Use with an already installed reverse proxy (nginx, Caddy, Apache, Traefik).
+# The application is available only to the VPS itself.
+services:
+  app:
+    ports:
+      - "127.0.0.1:8080:8080"

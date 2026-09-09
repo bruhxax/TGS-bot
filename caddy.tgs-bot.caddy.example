@@ -1,0 +1,5 @@
+# The installer replaces __PUBLIC_HOST__ before enabling this file.
+__PUBLIC_HOST__ {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:8080
+}
