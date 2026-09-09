@@ -142,6 +142,19 @@ func (s *Server) adminSaveSetting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if key == "content" {
+		for _, prefix := range []string{"trial_button", "cabinet_button", "support_button"} {
+			style := text(body.Value[prefix+"_style"])
+			if style != "" && style != "primary" && style != "success" && style != "danger" {
+				writeError(w, 400, "Неизвестный цвет кнопки")
+				return
+			}
+			if emoji := strings.TrimSpace(text(body.Value[prefix+"_emoji_id"])); emoji != "" && !customEmojiPattern.MatchString(emoji) {
+				writeError(w, 400, "Некорректный ID премиум-эмодзи")
+				return
+			}
+		}
+	}
 	value, err := s.Store.SaveSetting(r.Context(), key, body.Value)
 	if err != nil {
 		writeError(w, 500, "Не удалось сохранить настройки")
@@ -151,6 +164,7 @@ func (s *Server) adminSaveSetting(w http.ResponseWriter, r *http.Request) {
 	if key == "theme" {
 		out["theme_templates"] = store.ThemeTemplates
 	}
+	s.publishBootstrap()
 	writeJSON(w, 200, out)
 }
 
@@ -279,6 +293,7 @@ func (s *Server) adminCreateTariff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "Не удалось создать тариф")
 		return
 	}
+	s.publishBootstrap()
 	writeJSON(w, 201, tariffDTO(item))
 }
 func (s *Server) adminUpdateTariff(w http.ResponseWriter, r *http.Request) {
@@ -297,6 +312,7 @@ func (s *Server) adminUpdateTariff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "Тариф не найден")
 		return
 	}
+	s.publishBootstrap()
 	writeJSON(w, 200, tariffDTO(item))
 }
 func (s *Server) adminDeleteTariff(w http.ResponseWriter, r *http.Request) {
@@ -304,6 +320,7 @@ func (s *Server) adminDeleteTariff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "Не удалось удалить тариф")
 		return
 	}
+	s.publishBootstrap()
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
@@ -408,9 +425,10 @@ func (s *Server) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 		s.record(r.Context(), "admin", "Не удалось записать действие администратора", map[string]any{"error": auditErr.Error(), "target_user_id": target.ID})
 	}
 	if body.Blocked != nil && *body.Blocked && body.SubscriptionStatus == "DISABLED" {
-		_ = s.Telegram.Send(r.Context(), target.TelegramID, "Доступ к кабинету и VPN временно заблокирован администратором.", nil)
+		s.sendContentMessage(r.Context(), target.TelegramID, "full_block_message", "Доступ к кабинету и VPN временно заблокирован администратором.", nil, nil)
 	}
 	target, _ = s.Store.UserByID(r.Context(), id)
+	s.publishAccount(target.ID)
 	writeJSON(w, 200, adminUserDTO(target))
 }
 
@@ -477,6 +495,10 @@ func (s *Server) adminTicketStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ticket, _ := s.Store.Ticket(r.Context(), r.PathValue("id"))
+	if owner, err := s.Store.UserByID(r.Context(), ticket.UserID); err == nil {
+		ticket.User = &owner
+	}
+	s.publishSupport(ticket.UserID, ticket.ID)
 	writeJSON(w, 200, ticket)
 }
 func (s *Server) adminDiagnostics(w http.ResponseWriter, r *http.Request) {

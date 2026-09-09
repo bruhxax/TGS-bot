@@ -2,8 +2,9 @@ package bot
 
 import (
 	"context"
-	"fmt"
+	"html"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -89,7 +90,7 @@ func (b *Bot) onMessage(ctx context.Context, m telegram.Message) {
 		case "/start":
 			b.start(ctx, m.Chat.ID, u)
 		case "/myid":
-			_ = b.Telegram.Send(ctx, m.Chat.ID, fmt.Sprintf("Ваш Telegram ID: %d", m.From.ID), nil)
+			b.sendContent(ctx, m.Chat.ID, "myid_message", "Ваш Telegram ID: {id}", map[string]string{"id": strconv.FormatInt(m.From.ID, 10)}, nil)
 		case "/broadcast":
 			b.broadcastDraft(ctx, m, u)
 		}
@@ -107,6 +108,14 @@ func str(m map[string]any, key, fallback string) string {
 	return fallback
 }
 func yes(m map[string]any, key string) bool { v, _ := m[key].(bool); return v }
+
+func (b *Bot) sendContent(ctx context.Context, chatID int64, key, fallback string, values map[string]string, markup any) {
+	content, _ := b.Store.Setting(ctx, "content")
+	message := telegram.RenderHTML(str(content, key, fallback), values)
+	if err := b.Telegram.SendHTML(ctx, chatID, message, markup); err != nil {
+		_ = b.Telegram.Send(ctx, chatID, telegram.PlainText(message), markup)
+	}
+}
 func (b *Bot) start(ctx context.Context, chatID int64, u store.User) {
 	content, _ := b.Store.Setting(ctx, "content")
 	emergency, _ := b.Store.Setting(ctx, "emergency")
@@ -118,28 +127,44 @@ func (b *Bot) start(ctx context.Context, chatID int64, u store.User) {
 	trial, _ := b.Store.Setting(ctx, "trial")
 	rows := []any{}
 	if yes(features, "trial") && yes(trial, "enabled") && !u.TrialUsed {
-		rows = append(rows, []any{telegram.WebAppButton(str(content, "trial_button", "Бесплатный период"), b.Config.MiniAppURL("trial"))})
+		rows = append(rows, []any{telegram.StyledWebAppButton(str(content, "trial_button", "Бесплатный период"), b.Config.MiniAppURL("trial"), str(content, "trial_button_style", "success"), str(content, "trial_button_emoji_id", ""))})
 	}
-	rows = append(rows, []any{telegram.WebAppButton(str(content, "cabinet_button", "Личный кабинет"), b.Config.MiniAppURL("home"))})
+	rows = append(rows, []any{telegram.StyledWebAppButton(str(content, "cabinet_button", "Личный кабинет"), b.Config.MiniAppURL("home"), str(content, "cabinet_button_style", "primary"), str(content, "cabinet_button_emoji_id", ""))})
 	if yes(features, "support") {
-		rows = append(rows, []any{telegram.WebAppButton(str(content, "support_button", "Поддержка"), b.Config.MiniAppURL("support"))})
+		rows = append(rows, []any{telegram.StyledWebAppButton(str(content, "support_button", "Поддержка"), b.Config.MiniAppURL("support"), str(content, "support_button_style", ""), str(content, "support_button_emoji_id", ""))})
 	}
 	markup := map[string]any{"inline_keyboard": rows}
-	message := str(content, "start_title", "Добро пожаловать в TGS VPN") + "\n\n" + str(content, "start_text", "Управляйте подпиской в Mini App.")
-	_ = b.Telegram.Send(ctx, chatID, message, markup)
+	message := str(content, "start_message", "")
+	if message == "" {
+		message = "<b>" + html.EscapeString(str(content, "start_title", "Добро пожаловать в TGS VPN")) + "</b>\n\n" + html.EscapeString(str(content, "start_text", "Управляйте подпиской в Mini App."))
+	}
+	if err := b.Telegram.SendHTML(ctx, chatID, message, markup); err != nil {
+		fallbackRows := []any{}
+		if yes(features, "trial") && yes(trial, "enabled") && !u.TrialUsed {
+			fallbackRows = append(fallbackRows, []any{telegram.WebAppButton(str(content, "trial_button", "Бесплатный период"), b.Config.MiniAppURL("trial"))})
+		}
+		fallbackRows = append(fallbackRows, []any{telegram.WebAppButton(str(content, "cabinet_button", "Личный кабинет"), b.Config.MiniAppURL("home"))})
+		if yes(features, "support") {
+			fallbackRows = append(fallbackRows, []any{telegram.WebAppButton(str(content, "support_button", "Поддержка"), b.Config.MiniAppURL("support"))})
+		}
+		fallbackMarkup := map[string]any{"inline_keyboard": fallbackRows}
+		if err = b.Telegram.SendHTML(ctx, chatID, message, fallbackMarkup); err != nil {
+			_ = b.Telegram.Send(ctx, chatID, telegram.PlainText(message), fallbackMarkup)
+		}
+	}
 }
 
 func (b *Bot) broadcastDraft(ctx context.Context, m telegram.Message, u store.User) {
 	if !u.IsAdmin {
-		_ = b.Telegram.Send(ctx, m.Chat.ID, "Команда доступна только администратору.", nil)
+		b.sendContent(ctx, m.Chat.ID, "admin_only_message", "Команда доступна только администратору.", nil, nil)
 		return
 	}
 	_, err := b.Store.BeginBroadcastDraft(ctx, u.ID)
 	if err != nil {
-		_ = b.Telegram.Send(ctx, m.Chat.ID, "Не удалось создать черновик.", nil)
+		b.sendContent(ctx, m.Chat.ID, "broadcast_draft_error_message", "Не удалось создать черновик.", nil, nil)
 		return
 	}
-	_ = b.Telegram.Send(ctx, m.Chat.ID, "Отправьте следующим сообщением материал для рассылки. Фото, форматирование и премиум-эмодзи сохранятся.", nil)
+	b.sendContent(ctx, m.Chat.ID, "broadcast_prompt_message", "Отправьте следующим сообщением материал для рассылки. Фото, форматирование и премиум-эмодзи сохранятся.", nil, nil)
 }
 
 func (b *Bot) captureBroadcast(ctx context.Context, m telegram.Message, u store.User) {
@@ -156,7 +181,7 @@ func (b *Bot) captureBroadcast(ctx context.Context, m telegram.Message, u store.
 	}
 	draft, err = b.Store.CaptureBroadcast(ctx, draft.ID, m.Chat.ID, m.MessageID, summary)
 	if err != nil {
-		_ = b.Telegram.Send(ctx, m.Chat.ID, "Не удалось сохранить сообщение. Попробуйте ещё раз.", nil)
+		b.sendContent(ctx, m.Chat.ID, "broadcast_save_error_message", "Не удалось сохранить сообщение. Попробуйте ещё раз.", nil, nil)
 		return
 	}
 	markup := map[string]any{"inline_keyboard": []any{
@@ -164,7 +189,7 @@ func (b *Bot) captureBroadcast(ctx context.Context, m telegram.Message, u store.
 		[]any{telegram.CallbackButton("Изменить", "broadcast:edit:"+draft.ID)},
 	}}
 	if _, err = b.Telegram.CopyMessage(ctx, m.Chat.ID, m.Chat.ID, m.MessageID, markup); err != nil {
-		_ = b.Telegram.Send(ctx, m.Chat.ID, "Сообщение сохранено, но предпросмотр не создался. Нажмите «Изменить» в Mini App и повторите.", nil)
+		b.sendContent(ctx, m.Chat.ID, "broadcast_preview_error_message", "Сообщение сохранено, но предпросмотр не создался. Нажмите «Изменить» в Mini App и повторите.", nil, nil)
 	}
 }
 
@@ -190,7 +215,7 @@ func (b *Bot) onCallback(ctx context.Context, q telegram.CallbackQuery) {
 		}
 		_ = b.Store.SetBroadcastStatus(ctx, draft.ID, "awaiting")
 		_ = b.Telegram.AnswerCallback(ctx, q.ID, "Отправьте новое сообщение")
-		_ = b.Telegram.Send(ctx, q.Message.Chat.ID, "Отправьте новый вариант одним сообщением.", nil)
+		b.sendContent(ctx, q.Message.Chat.ID, "broadcast_edit_message", "Отправьте новый вариант одним сообщением.", nil, nil)
 		return
 	}
 	if parts[1] != "confirm" || draft.Status != "preview" {
@@ -200,5 +225,5 @@ func (b *Bot) onCallback(ctx context.Context, q telegram.CallbackQuery) {
 	_ = b.Store.SetBroadcastStatus(ctx, draft.ID, "confirmed")
 	_ = b.Telegram.AnswerCallback(ctx, q.ID, "Сообщение подтверждено")
 	markup := map[string]any{"inline_keyboard": []any{[]any{telegram.WebAppButton("Вернуться к рассылке", b.Config.MiniAppURL("admin:broadcast"))}}}
-	_ = b.Telegram.Send(ctx, q.Message.Chat.ID, "Готово. Теперь добавьте кнопки, выполните тест и запустите рассылку в Mini App.", markup)
+	b.sendContent(ctx, q.Message.Chat.ID, "broadcast_confirmed_message", "Готово. Теперь добавьте кнопки, выполните тест и запустите рассылку в Mini App.", nil, markup)
 }

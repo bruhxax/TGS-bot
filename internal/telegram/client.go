@@ -5,9 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -85,6 +89,13 @@ func (c *Client) Send(ctx context.Context, chatID int64, text string, markup any
 	}
 	return c.Call(ctx, "sendMessage", body, nil)
 }
+func (c *Client) SendHTML(ctx context.Context, chatID int64, text string, markup any) error {
+	body := map[string]any{"chat_id": chatID, "text": text, "parse_mode": "HTML"}
+	if markup != nil {
+		body["reply_markup"] = markup
+	}
+	return c.Call(ctx, "sendMessage", body, nil)
+}
 func (c *Client) CopyMessage(ctx context.Context, chatID, fromChatID int64, messageID int, markup any) (int, error) {
 	body := map[string]any{"chat_id": chatID, "from_chat_id": fromChatID, "message_id": messageID}
 	if markup != nil {
@@ -124,6 +135,16 @@ func (c *Client) GetMe(ctx context.Context) (User, error) {
 func WebAppButton(text, link string) map[string]any {
 	return map[string]any{"text": text, "web_app": map[string]string{"url": link}}
 }
+func StyledWebAppButton(text, link, style, customEmojiID string) map[string]any {
+	button := WebAppButton(text, link)
+	if style == "primary" || style == "success" || style == "danger" {
+		button["style"] = style
+	}
+	if customEmojiID != "" {
+		button["icon_custom_emoji_id"] = customEmojiID
+	}
+	return button
+}
 func URLButton(text, link string) map[string]any { return map[string]any{"text": text, "url": link} }
 func StyledURLButton(text, link, style, customEmojiID string) map[string]any {
 	button := map[string]any{"text": text, "url": link}
@@ -139,3 +160,25 @@ func CallbackButton(text, data string) map[string]any {
 	return map[string]any{"text": text, "callback_data": data}
 }
 func QueryEscape(v string) string { return url.QueryEscape(v) }
+
+var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)
+
+func RenderHTML(template string, values map[string]string) string {
+	if len(values) == 0 {
+		return template
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	replacements := make([]string, 0, len(keys)*2)
+	for _, key := range keys {
+		replacements = append(replacements, "{"+key+"}", html.EscapeString(values[key]))
+	}
+	return strings.NewReplacer(replacements...).Replace(template)
+}
+
+func PlainText(value string) string {
+	return strings.TrimSpace(html.UnescapeString(htmlTagPattern.ReplaceAllString(value, "")))
+}

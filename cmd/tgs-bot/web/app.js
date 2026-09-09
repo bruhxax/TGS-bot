@@ -14,15 +14,16 @@ const i18n = {
 };
 
 const params = new URLSearchParams(location.search);
-const state = { token: sessionStorage.getItem('tgs_session') || '', data: null, page: params.get('page') || 'home', preview: isPreview, cache: {}, selectedTariffID: '', scrollPositions: {} };
+const state = { token: sessionStorage.getItem('tgs_session') || '', data: null, page: params.get('page') || 'home', preview: isPreview, cache: {}, selectedTariffID: '', scrollPositions: {}, supportLoading: false };
 const tr = key => i18n[state.data?.language?.default || 'ru']?.[key] || i18n.ru[key] || key;
 
-let iconSpritePrefix = '/assets/icons.svg?v=20260910-v100';
+let iconSpritePrefix = '/assets/icons.svg?v=20260910-v101';
 const icon = name => `<svg class="icon${name === 'loader' ? ' icon-loader' : ''}" viewBox="0 0 24 24" aria-hidden="true"><use href="${iconSpritePrefix}#icon-${name}"></use></svg>`;
+const paymentLogo = provider => `<span class="payment-logo ${esc(provider)}" aria-hidden="true">${icon(`pay-${provider}`)}</span>`;
 
 async function loadIconSprite() {
   try {
-    const response = await fetch('/assets/icons.svg?v=20260910-v100', {cache:'force-cache'});
+    const response = await fetch('/assets/icons.svg?v=20260910-v101', {cache:'force-cache'});
     if (!response.ok) return;
     const parsed = new DOMParser().parseFromString(await response.text(), 'image/svg+xml');
     if (parsed.querySelector('parsererror') || !parsed.querySelector('symbol')) return;
@@ -208,19 +209,20 @@ function homePage() {
   const hasSubscription = active || Boolean(sub.subscription_url || sub.expires_at);
   const limit = Number(sub.traffic_limit_bytes || 0), used = Number(sub.traffic_used_bytes || 0);
   const progress = limit ? Math.min(100, used / limit * 100) : 0;
+  const frame = card => `<div class="home-stage"><div class="home-content"><p class="home-brand">${esc(content.brand || 'TGS VPN')}</p>${card}</div></div>`;
   if (!hasSubscription) {
     const trialButton = features.trial && trial.enabled && !user.trial_used ? `<button class="secondary" data-action="trial">${icon('gift')}<span>${esc(content.trial_button || 'Бесплатный период')}</span></button>` : '';
-    return `<div class="home-stage"><section class="hero subscription-empty"><span class="status-dot danger" aria-label="Подписки нет"></span><div class="empty-state-icon">${icon('unavailable')}</div><h2>Подписки нету</h2><div class="compact-stack">${trialButton}<button class="primary" data-nav="tariffs">${icon('plans')}<span>Купить подписку</span></button></div></section></div>`;
+    return frame(`<section class="hero subscription-empty"><span class="status-dot danger" aria-label="Подписки нет"></span><div class="empty-state-icon">${icon('unavailable')}</div><h2>Подписки нету</h2><div class="compact-stack">${trialButton}<button class="primary" data-nav="tariffs">${icon('plans')}<span>Купить подписку</span></button></div></section>`);
   }
   if (expired || !active) {
-    return `<div class="home-stage"><section class="hero subscription-empty"><span class="status-dot danger" aria-label="Подписка закончилась"></span><div class="empty-state-icon">${icon('unavailable')}</div><h2>Подписка закончилась</h2><div class="compact-stack"><button class="primary" data-nav="tariffs">${icon('plans')}<span>${esc(content.renew_button || tr('renew'))}</span></button></div></section></div>`;
+    return frame(`<section class="hero subscription-empty"><span class="status-dot danger" aria-label="Подписка закончилась"></span><div class="empty-state-icon">${icon('unavailable')}</div><h2>Подписка закончилась</h2><div class="compact-stack"><button class="primary" data-nav="tariffs">${icon('plans')}<span>${esc(content.renew_button || tr('renew'))}</span></button></div></section>`);
   }
-  return `<div class="home-stage"><section class="hero subscription-active">
+  return frame(`<section class="hero subscription-active">
     <div class="hero-head"><div><p class="eyebrow">${tr('expires')}</p><h2 class="expiry">${formatDate(sub.expires_at)}</h2></div><span class="status-dot active" aria-label="Подписка активна"></span></div>
     <div class="hero-stats"><div class="stat-block"><small>${tr('devices')}</small><strong>${Number(sub.connected_devices || 0)} / ${Number(sub.device_limit) > 0 ? Number(sub.device_limit) : '∞'}</strong></div><div class="stat-block"><small>${tr('traffic')}</small><strong>${limit ? bytes(limit) : tr('unlimited')}</strong></div></div>
     <div class="traffic-row"><span>Использовано</span><strong>${bytes(used)}${limit ? ` из ${bytes(limit)}` : ''}</strong></div><div class="progress" role="progressbar" aria-valuenow="${Math.round(progress)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${progress}%"></i></div>
     <div class="compact-stack"><button class="secondary" data-nav="tariffs">${icon('plans')}<span>${esc(content.renew_button || tr('renew'))}</span></button><button class="primary" data-action="connect" ${sub.subscription_url ? '' : 'disabled'}>${icon('link')}<span>${esc(content.connect_button || tr('connect'))}</span></button></div>
-  </section></div>`;
+  </section>`);
 }
 
 function row(ico,title,subtitle,target,action='nav') { return `<button class="list-row" data-${action}="${esc(target)}"><span class="icon-box">${icon(ico)}</span><span><strong>${esc(title)}</strong><small>${esc(subtitle)}</small></span><span class="chevron">${icon('arrow')}</span></button>`; }
@@ -234,12 +236,56 @@ function tariffsPage() {
 }
 
 function supportPage() {
-  const tickets = state.data.tickets || [];
-  return `<div class="support-intro"><p>${esc(state.data.content.support_welcome)}</p><button class="primary" data-action="new-ticket">${icon('plus')}<span>${tr('createTicket')}</span></button></div><div class="section-title"><h3>${tr('tickets')}</h3><span>${tickets.length}</span></div><div class="list ticket-list">${tickets.length ? tickets.map(t => { const last=t.messages?.[t.messages.length-1]; return `<button class="list-row ticket-row" data-nav="ticket:${t.id}"><span class="icon-box">${icon('support')}</span><span class="ticket-copy"><strong>${esc(t.subject)}</strong><small>${esc(last?.text || 'Сообщений пока нет')}</small></span><span class="ticket-side"><span class="ticket-time">${formatStamp(t.updated_at)}</span><span class="status ${esc(t.status)}">${statusLabel(t.status)}</span></span></button>`; }).join('') : empty('support','Открытых тикетов нет')}</div>`;
+  const isAdmin = state.data.user.is_admin;
+  if (isAdmin && !Array.isArray(state.cache.adminTickets)) {
+    loadSupportTickets();
+    return loadingState('Загружаем обращения');
+  }
+  const tickets = visibleTickets();
+  const intro = isAdmin ? '<div class="support-admin-caption"><strong>Обращения пользователей</strong><small>Новые сообщения появляются автоматически</small></div>' : `<div class="support-intro"><p>${esc(state.data.content.support_welcome)}</p><button class="primary" data-action="new-ticket">${icon('plus')}<span>${tr('createTicket')}</span></button></div>`;
+  const title = isAdmin ? 'Все тикеты' : tr('tickets');
+  return `${intro}<div class="section-title"><h3>${title}</h3><span>${tickets.length}</span></div><div class="list ticket-list">${tickets.length ? tickets.map(ticketRow).join('') : empty('support','Открытых тикетов нет')}</div>`;
+}
+
+function visibleTickets() { return state.data.user.is_admin ? (state.cache.adminTickets || []) : (state.data.tickets || []); }
+async function loadSupportTickets() {
+  if (state.supportLoading) { state.supportRefreshQueued=true;return; }
+  state.supportLoading=true;
+  const view=$('#page-view'), chat=$('.chat'), input=$('#chat-form input');
+  const snapshot={page:state.page,viewTop:view?.scrollTop||0,chatTop:chat?.scrollTop||0,nearBottom:chat?chat.scrollHeight-chat.scrollTop-chat.clientHeight<44:true,draft:input?.value||'',focused:document.activeElement===input};
+  try {
+    const rows=await api(state.data.user.is_admin?'/api/admin/tickets':'/api/tickets');
+    if(state.data.user.is_admin)state.cache.adminTickets=rows;else state.data.tickets=rows;
+    if(state.page==='support'||state.page.startsWith('ticket:')){
+      render();
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        if(state.page!==snapshot.page)return;
+        const nextView=$('#page-view'),nextChat=$('.chat'),nextInput=$('#chat-form input');
+        if(nextView&&!state.page.startsWith('ticket:'))nextView.scrollTop=snapshot.viewTop;
+        if(nextChat)nextChat.scrollTop=snapshot.nearBottom?nextChat.scrollHeight:snapshot.chatTop;
+        if(nextInput){nextInput.value=snapshot.draft;if(snapshot.focused)nextInput.focus()}
+      }));
+    }
+  } catch(e) { if(!state.cache.adminTickets&&state.data.user.is_admin)state.cache.adminTickets=[];toast(e.message,true);if(state.page==='support')render(); }
+  finally { state.supportLoading=false;if(state.supportRefreshQueued){state.supportRefreshQueued=false;loadSupportTickets()} }
+}
+function replaceTicket(ticket) {
+  const rows=visibleTickets(), index=rows.findIndex(item=>item.id===ticket.id), previous=index>=0?rows[index]:null;
+  if(!ticket.user&&previous?.user)ticket.user=previous.user;
+  if(index>=0)rows[index]=ticket;else rows.unshift(ticket);
+}
+function ticketUserLine(ticket) {
+  const user=ticket.user||{}, telegram=user.username?`@${user.username}`:`Telegram ${user.telegram_id||ticket.user_id}`, panel=user.remnawave_username||`tgs_${user.telegram_id||ticket.user_id}`;
+  return `${user.first_name||'Пользователь'} · ${telegram} · ${panel}`;
+}
+function ticketRow(ticket) {
+  const last=ticket.messages?.[ticket.messages.length-1], adminLine=state.data.user.is_admin?`<small class="ticket-user-line">${esc(ticketUserLine(ticket))}</small>`:'';
+  return `<button class="list-row ticket-row" data-nav="ticket:${ticket.id}"><span class="icon-box">${icon('support')}</span><span class="ticket-copy"><strong>${esc(ticket.subject)}</strong>${adminLine}<small>${esc(last?.text || 'Сообщений пока нет')}</small></span><span class="ticket-side"><span class="ticket-time">${formatStamp(ticket.updated_at)}</span><span class="status ${esc(ticket.status)}">${statusLabel(ticket.status)}</span></span></button>`;
 }
 
 function ticketMessage(message) {
-  return `<article class="bubble ${message.is_admin ? 'support-message' : 'mine'}"><strong>${message.is_admin ? 'Поддержка' : 'Вы'}</strong><p>${esc(message.text)}</p><time>${formatStamp(message.created_at)}</time></article>`;
+  const adminViewer=state.data.user.is_admin, mine=adminViewer?message.is_admin:!message.is_admin;
+  return `<article class="bubble ${mine ? 'mine' : 'support-message'}"><strong>${message.is_admin ? 'Поддержка' : (adminViewer ? 'Пользователь' : 'Вы')}</strong><p>${esc(message.text)}</p><time>${formatStamp(message.created_at)}</time></article>`;
 }
 
 function ticketMessages(messages) {
@@ -247,10 +293,14 @@ function ticketMessages(messages) {
 }
 
 function ticketPage(id) {
-  const ticket = (state.page.startsWith('admin:') ? state.cache.adminTickets : state.data.tickets)?.find(t => t.id === id);
+  if (state.data.user.is_admin && !Array.isArray(state.cache.adminTickets)) loadSupportTickets();
+  const ticket = visibleTickets().find(t => t.id === id);
   if (!ticket) return `${detailHead('Тикет', 'support')}${empty('support','Тикет не найден')}`;
   const messages = ticket.messages || [];
-  return `<section class="ticket-layout">${detailHead(ticket.subject, 'support')}<div class="ticket-context"><span class="status ${esc(ticket.status)}">${statusLabel(ticket.status)}</span></div><div class="chat" aria-label="Переписка с поддержкой">${ticketMessages(messages)}</div>${ticket.status !== 'closed' ? `<form class="chat-compose" id="chat-form"><input name="text" maxlength="5000" aria-label="Сообщение" placeholder="Сообщение…" autocomplete="off"><button class="icon-button" aria-label="Отправить">${icon('send')}</button></form>` : '<p class="notice">Тикет закрыт</p>'}</section>`;
+  const admin=state.data.user.is_admin, userInfo=admin?`<div class="ticket-user-context"><strong>${esc(ticket.user?.first_name||'Пользователь')}</strong><span>${ticket.user?.username?'@'+esc(ticket.user.username):`Telegram ${esc(ticket.user?.telegram_id||ticket.user_id)}`}</span><span>${esc(ticket.user?.remnawave_username||`tgs_${ticket.user?.telegram_id||ticket.user_id}`)}</span></div>`:'';
+  const statusActions=admin?`<div class="ticket-status-actions"><button class="compact-button ${ticket.status==='open'?'accent':''}" data-ticket-status="${ticket.id}:open">Открыт</button><button class="compact-button ${ticket.status==='closed'?'accent':''}" data-ticket-status="${ticket.id}:closed">Закрыт</button></div>`:'';
+  const compose=ticket.status!=='closed'||admin?`<form class="chat-compose" id="chat-form"><input name="text" maxlength="5000" aria-label="Сообщение" placeholder="Сообщение…" autocomplete="off"><button class="icon-button" aria-label="Отправить">${icon('send')}</button></form>`:'<p class="notice">Тикет закрыт</p>';
+  return `<section class="ticket-layout">${detailHead(ticket.subject, 'support')}<div class="ticket-context">${userInfo}<div class="ticket-state"><span class="status ${esc(ticket.status)}">${statusLabel(ticket.status)}</span>${statusActions}</div></div><div class="chat" aria-label="Переписка с поддержкой">${ticketMessages(messages)}</div>${compose}</section>`;
 }
 
 const moreItems = {
@@ -266,7 +316,7 @@ function morePage() {
 function moreDetail(key) {
   const labels = moreItems[key] || ['info','Раздел',''];
   const head = detailHead(labels[1], 'more');
-  if (key === 'payments') return `${head}<div class="list">${state.data.payments?.length ? state.data.payments.map(p => `<div class="list-row" style="cursor:default"><span class="icon-box">${icon('card')}</span><span><strong>${money(p.amount_rub)}</strong><small>${esc(p.snapshot?.name || p.provider)} · ${formatDate(p.created_at)}</small></span><span class="status ${p.status}">${statusLabel(p.status)}</span></div>`).join('') : empty('card','Платежей пока нет')}</div>`;
+  if (key === 'payments') return `${head}<div class="list">${state.data.payments?.length ? state.data.payments.map(p => `<div class="list-row" style="cursor:default"><span class="icon-box">${['yookassa','cryptobot'].includes(p.provider)?paymentLogo(p.provider):icon('card')}</span><span><strong>${money(p.amount_rub)}</strong><small>${esc(p.snapshot?.name || p.provider)} · ${formatDate(p.created_at)}</small></span><span class="status ${p.status}">${statusLabel(p.status)}</span></div>`).join('') : empty('card','Платежей пока нет')}</div>`;
   if (key === 'referral') { const ref = state.data.referral; return `${head}<section class="hero"><p class="eyebrow">Приглашено</p><h2 class="expiry">${ref.count}</h2><div class="hero-stats"><div class="stat-block"><small>Бонус</small><strong>${ref.referral_days} дней</strong></div><div class="stat-block"><small>Трафик</small><strong>${ref.referral_traffic_gb} ГБ</strong></div></div><div class="code">${esc(ref.link)}</div><button class="primary full-width top-gap" data-copy="${esc(ref.link)}">${icon('copy')}Скопировать ссылку</button></section>`; }
   const cached = state.cache[key];
   if (!cached) { loadMore(key); return `${head}${loadingState()}`; }
@@ -279,7 +329,7 @@ async function loadMore(key) { try { state.cache[key] = await api(key === 'serve
 
 function adminPage() {
   const items = [
-    ['globe','Язык','Язык интерфейса','language'], ['alert','Режим аварии','Отключить доступ пользователям','emergency'], ['pulse','Диагностика','Ошибки панели и платежей','diagnostics'], ['toggles','Управление функциями','Включение разделов','features'], ['gift','Триал','Срок, трафик и сквады','trial'], ['link','Интеграции','Remnawave и платежи','integrations'], ['edit','Редактор контента','Тексты и брендинг','content'], ['palette','Оформление','Цветовые шаблоны','theme'], ['sort','Разное','Порядок пунктов','more_order'], ['plans','Тарифы','Каталог и сквады','tariffs'], ['user','Пользователи','Поиск и управление','users'], ['support','Тикеты поддержки','Ответы пользователям','tickets'], ['gear','Система','Реферальные бонусы','system'], ['megaphone','Рассылка','Создание через Telegram','broadcast'], ['percent','Промокоды','Скидки и лимиты','promos']
+    ['globe','Язык','Язык интерфейса','language'], ['alert','Режим аварии','Отключить доступ пользователям','emergency'], ['pulse','Диагностика','Ошибки панели и платежей','diagnostics'], ['toggles','Управление функциями','Включение разделов','features'], ['gift','Триал','Срок, трафик и сквады','trial'], ['link','Интеграции','Remnawave и платежи','integrations'], ['edit','Редактор контента','Тексты и брендинг','content'], ['palette','Оформление','Цветовые шаблоны','theme'], ['sort','Разное','Порядок пунктов','more_order'], ['plans','Тарифы','Каталог и сквады','tariffs'], ['user','Пользователи','Поиск и управление','users'], ['gear','Система','Реферальные бонусы','system'], ['megaphone','Рассылка','Создание через Telegram','broadcast'], ['percent','Промокоды','Скидки и лимиты','promos']
   ];
   if (!state.cache.overview) loadAdmin('overview');
   const o = state.cache.overview;
@@ -298,7 +348,6 @@ function adminDetail(key) {
   if (key === 'diagnostics') return adminCollection(key,'Диагностика','/api/admin/diagnostics',diagnosticsView);
   if (key === 'tariffs') return adminCollection(key,'Тарифы','/api/admin/tariffs',adminTariffsView);
   if (key === 'users') return adminCollection(key,'Пользователи','/api/admin/users',adminUsersView);
-  if (key === 'tickets') return adminCollection(key,'Тикеты поддержки','/api/admin/tickets',adminTicketsView);
   if (key === 'promos') return adminCollection(key,'Промокоды','/api/admin/promos',adminPromosView);
   if (key === 'broadcast') return adminCollection(key,'Рассылка','/api/admin/broadcast',broadcastView);
   return adminBack('Раздел');
@@ -326,7 +375,7 @@ function squadPicker(selectedInternal=[], selectedExternal='', prefix='squads') 
   return `<section class="squad-picker"><header><span><strong>Внутренние сквады</strong><small>Доступные серверы тарифа</small></span><span class="picker-actions"><button type="button" class="text-button" data-squads-all ${squads.error?'disabled':''}>Все</button><button type="button" class="text-button" data-squads-clear ${squads.error?'disabled':''}>Снять</button></span></header><div class="squad-options">${choices}</div><div class="field"><label for="${prefix}-external">Внешний сквад</label><select id="${prefix}-external" name="external_squad_uuid" ${squads.error?'disabled':''}><option value="">Не использовать</option>${currentExternal}${external.map(s=>`<option value="${esc(s.uuid)}" ${s.uuid===selectedExternal?'selected':''}>${esc(s.name)}</option>`).join('')}</select>${squads.error?`<input type="hidden" name="external_squad_uuid" value="${esc(selectedExternal)}">`:''}</div></section>`;
 }
 
-function settingsAccordion(title,subtitle,ico,content,open=false) { return `<details class="settings-accordion" ${open?'open':''}><summary><span class="icon-box">${icon(ico)}</span><span><strong>${esc(title)}</strong><small>${esc(subtitle)}</small></span><span class="accordion-arrow">${icon('arrow')}</span></summary><div class="accordion-body">${content}</div></details>`; }
+function settingsAccordion(title,subtitle,ico,content,open=false) { const visual=ico.startsWith('pay-')?paymentLogo(ico.slice(4)):icon(ico);return `<details class="settings-accordion" ${open?'open':''}><summary><span class="icon-box">${visual}</span><span><strong>${esc(title)}</strong><small>${esc(subtitle)}</small></span><span class="accordion-arrow">${icon('arrow')}</span></summary><div class="accordion-body">${content}</div></details>`; }
 
 function settingPage(key, payload) {
   const v = payload.value || {}, titles = {language:'Язык',emergency:'Режим аварии',features:'Управление функциями',trial:'Триал',integrations:'Интеграции',content:'Редактор контента',theme:'Оформление',more_order:'Разное',system:'Система'};
@@ -350,23 +399,35 @@ function integrationForms(v) {
     ['cryptobot','CryptoBot',[['token','API Token','password']]],
     ['notifications','Бот уведомлений',[['bot_token','Токен бота','password'],['chat_id','Chat ID','text']]]
   ];
-  const icons={remnawave:'link',yookassa:'card',cryptobot:'link',notifications:'send'};
+  const icons={remnawave:'link',yookassa:'pay-yookassa',cryptobot:'pay-cryptobot',notifications:'send'};
   return `<div class="accordion-stack">${groups.map(([key,title,fields],index)=>{const c=v[key]||{};const webhookHint=key==='remnawave'?'<p class="field-hint">Webhook: /api/webhooks/remnawave · заголовок X-Webhook-Secret</p>':'';const body=`<form data-setting-form="integrations">${switchRow(`${key}.enabled`,'Включено',c.enabled)}${fields.map(([n,l,t])=>field(`${key}.${n}`,l,c[n]||'',t)).join('')}${webhookHint}${key==='cryptobot'?switchRow('cryptobot.testnet','Тестовая сеть',c.testnet):''}<div class="form-actions">${key!=='notifications'?`<button type="button" class="secondary" data-test-integration="${key}">Проверить</button>`:''}<button class="primary">Сохранить</button></div></form>`;return settingsAccordion(title,c.enabled?'Подключено':'Выключено',icons[key],body,index===0)}).join('')}</div>`;
 }
 
 function contentForms(v) {
-  const groups=[
-    ['miniapp','Mini App','Кнопки и тексты приложения','home',[['connect_button','Кнопка подключения'],['renew_button','Кнопка продления'],['support_welcome','Текст поддержки']]],
-    ['chat','Чат и /start','Приветствие и кнопки бота','support',[['start_title','Заголовок /start'],['start_text','Текст /start'],['trial_button','Кнопка триала'],['cabinet_button','Кнопка кабинета'],['support_button','Кнопка поддержки']]],
-    ['brand','Брендинг','Название и логотип','palette',[['brand','Название'],['logo_url','URL логотипа']]]
-  ];
-  return `<div class="accordion-stack">${groups.map(([key,title,sub,ico,fields],index)=>settingsAccordion(title,sub,ico,`<form data-setting-form="content">${fields.map(([name,label])=>field(name,label,v[name]||'')).join('')}<button class="primary full-width">Сохранить</button></form>`,index===0)).join('')}</div>`;
+  const legacyStart=`<b>${v.start_title||'Добро пожаловать в TGS VPN'}</b>\n\n${v.start_text||'Управляйте подпиской в Mini App.'}`;
+  const miniapp=`<form data-setting-form="content">${field('connect_button','Кнопка подключения',v.connect_button||'')}${field('renew_button','Кнопка продления',v.renew_button||'')}${textareaField('support_welcome','Текст поддержки',v.support_welcome||'')}<button class="primary full-width">Сохранить</button></form>`;
+  const start=`<form data-setting-form="content">${telegramMessageField('start_message','Сообщение /start',v.start_message||legacyStart)}${telegramButtonEditor('trial_button','Бесплатный период',v)}${telegramButtonEditor('cabinet_button','Личный кабинет',v)}${telegramButtonEditor('support_button','Поддержка',v)}<button class="primary full-width">Сохранить</button></form>`;
+  const notifications=`<form data-setting-form="content">${telegramMessageField('payment_success_message','Успешная оплата',v.payment_success_message||'')}${telegramMessageField('support_reply_message','Ответ поддержки',v.support_reply_message||'','Переменная: {subject}')}${telegramMessageField('full_block_message','Полная блокировка',v.full_block_message||'')}${telegramMessageField('myid_message','Команда /myid',v.myid_message||'','Переменная: {id}')}<button class="primary full-width">Сохранить</button></form>`;
+  const adminAlerts=`<form data-setting-form="content">${telegramMessageField('trial_admin_message','Выдан пробный период',v.trial_admin_message||'','Переменные: {name}, {id}')}${telegramMessageField('new_ticket_admin_message','Новый тикет',v.new_ticket_admin_message||'','Переменные: {subject}, {name}, {id}')}${telegramMessageField('ticket_message_admin_message','Новое сообщение в тикете',v.ticket_message_admin_message||'','Переменная: {subject}')}${telegramMessageField('payment_admin_message','Новая оплата',v.payment_admin_message||'','Переменные: {name}, {amount}, {provider}')}<button class="primary full-width">Сохранить</button></form>`;
+  const broadcast=`<form data-setting-form="content">${telegramMessageField('admin_only_message','Нет прав администратора',v.admin_only_message||'')}${telegramMessageField('broadcast_prompt_message','Запрос сообщения',v.broadcast_prompt_message||'')}${telegramMessageField('broadcast_draft_error_message','Ошибка черновика',v.broadcast_draft_error_message||'')}${telegramMessageField('broadcast_save_error_message','Ошибка сохранения',v.broadcast_save_error_message||'')}${telegramMessageField('broadcast_preview_error_message','Ошибка предпросмотра',v.broadcast_preview_error_message||'')}${telegramMessageField('broadcast_edit_message','Повторный ввод',v.broadcast_edit_message||'')}${telegramMessageField('broadcast_confirmed_message','Сообщение подтверждено',v.broadcast_confirmed_message||'')}${telegramMessageField('broadcast_start_error_message','Ошибка запуска',v.broadcast_start_error_message||'')}${telegramMessageField('broadcast_complete_message','Рассылка завершена',v.broadcast_complete_message||'','Переменные: {sent}, {failed}')}<button class="primary full-width">Сохранить</button></form>`;
+  const brand=`<form data-setting-form="content">${field('brand','Название',v.brand||'')}${field('logo_url','URL логотипа',v.logo_url||'','url')}<button class="primary full-width">Сохранить</button></form>`;
+  const groups=[['Mini App','Кнопки и тексты приложения','home',miniapp],['Чат и /start','HTML, премиум-эмодзи и кнопки','support',start],['Уведомления','Сообщения пользователям','send',notifications],['Администратору','Триал, тикеты и платежи','admin',adminAlerts],['Рассылка','Системные сообщения в чате','megaphone',broadcast],['Брендинг','Название и логотип','palette',brand]];
+  return `<div class="accordion-stack">${groups.map(([title,sub,ico,body],index)=>settingsAccordion(title,sub,ico,body,index===0)).join('')}</div>`;
+}
+
+function telegramMessageField(name,label,value='',variables='') {
+  const help=`Telegram HTML: &lt;b&gt;, &lt;i&gt;, &lt;u&gt;, &lt;s&gt;, &lt;code&gt;, ссылки и &lt;tg-emoji emoji-id=&quot;ID&quot;&gt;🙂&lt;/tg-emoji&gt;${variables?` · ${esc(variables)}`:''}`;
+  return `<div class="field wide telegram-message-field"><label for="f-${esc(name)}">${esc(label)}</label><textarea class="telegram-source" id="f-${esc(name)}" name="${esc(name)}" spellcheck="false">${esc(value)}</textarea><p class="field-hint">${help}</p></div>`;
+}
+
+function telegramButtonEditor(prefix,label,v) {
+  const style=v[`${prefix}_style`]||'', emoji=v[`${prefix}_emoji_id`]||'';
+  return `<section class="telegram-button-editor"><strong>${esc(label)}</strong><div class="form-grid">${field(prefix,'Название',v[prefix]||'') }<div class="field"><label for="f-${prefix}-style">Цвет</label><select id="f-${prefix}-style" name="${prefix}_style"><option value="" ${!style?'selected':''}>Обычная</option><option value="primary" ${style==='primary'?'selected':''}>Синяя</option><option value="success" ${style==='success'?'selected':''}>Зелёная</option><option value="danger" ${style==='danger'?'selected':''}>Красная</option></select></div>${field(`${prefix}_emoji_id`,'ID премиум-эмодзи',emoji,'text','Необязательно')}</div></section>`;
 }
 
 function diagnosticsView(rows) { if (!Array.isArray(rows)) return empty('alert',rows.error||'Ошибка'); return `<div class="list">${rows.length ? rows.map(d=>`<div class="list-row"><span class="icon-box">${icon('pulse')}</span><span><strong>${esc(d.source)}</strong><small>${esc(d.message)} · ${formatDate(d.created_at)}</small></span>${d.resolved?'<span class="status active">Решено</span>':`<button class="compact-button" data-resolve="${d.id}">Решено</button>`}</div>`).join('') : empty('pulse','Ошибок нет')}</div>`; }
 function adminTariffsView(rows) { if (!Array.isArray(rows)) return empty('plans','Ошибка'); return `<button class="primary" style="width:100%;margin-bottom:12px" data-admin-tariff="new">${icon('plus')}Создать тариф</button><div class="list">${rows.map(t=>`<button class="list-row" data-admin-tariff="${t.id}"><span class="icon-box">${icon('plans')}</span><span><strong>${esc(t.name)}</strong><small>${t.days} дней · ${money(t.price_rub)}${t.active?'':' · выключен'}</small></span>${icon('arrow')}</button>`).join('')}</div>`; }
 function adminUsersView(rows) { if (!Array.isArray(rows)) return empty('user','Ошибка'); return `<form id="user-search" class="field" style="margin-top:0"><label>Поиск</label><input name="q" placeholder="Имя, username или Telegram ID"></form><div class="list">${rows.length?rows.map(u=>`<button class="list-row" data-admin-user="${u.id}">${avatar(u,'avatar')}<span><strong>${esc(u.first_name)}</strong><small>${u.username?'@'+esc(u.username):u.telegram_id} · ${statusLabel(u.subscription.status)}</small></span>${icon('arrow')}</button>`).join(''):empty('user','Пользователи не найдены')}</div>`; }
-function adminTicketsView(rows) { if (!Array.isArray(rows)) return empty('support','Ошибка'); return `<div class="list">${rows.length?rows.map(t=>`<button class="list-row admin-ticket-row" data-admin-ticket="${t.id}"><span><strong>${esc(t.subject)}</strong><small>${esc(t.user?.first_name||'')} · ${formatDate(t.updated_at)}</small></span><span class="status ${t.status}">${statusLabel(t.status)}</span></button>`).join(''):empty('support','Тикетов нет')}</div>`; }
 function adminPromosView(rows) { if (!Array.isArray(rows)) return empty('percent','Ошибка'); return `<button class="primary" style="width:100%;margin-bottom:12px" data-action="new-promo">${icon('plus')}Создать промокод</button><div class="list">${rows.length?rows.map(p=>`<div class="list-row"><span class="icon-box">${icon('percent')}</span><span><strong>${esc(p.code)} · ${p.discount_percent}%</strong><small>${p.uses}${p.max_uses?` / ${p.max_uses}`:''} использований</small></span><button class="compact-button danger" data-delete-promo="${p.id}" aria-label="Удалить">${icon('trash')}</button></div>`).join(''):empty('percent','Промокодов нет')}</div>`; }
 
 function broadcastButtonRow(button={},index=0) {
@@ -413,7 +474,7 @@ function closeModal(immediate = false) {
 
 function buyModal(id) {
   const tariff=state.data.tariffs.find(t=>t.id===id), methods=state.data.payment_methods.filter(m=>m.enabled);
-  openModal(`Оплата — ${tariff.name}`, `<form id="checkout-form"><input type="hidden" name="tariff_id" value="${tariff.id}"><div class="choice-list">${methods.length?methods.map((m,i)=>`<label class="choice"><input type="radio" name="provider" value="${m.id}" ${i===0?'checked':''}><span><strong>${esc(m.name)}</strong><small style="display:block;color:var(--muted);margin-top:3px">${m.id==='yookassa'?'Банковская карта или СБП':'Криптовалюта через Telegram'}</small></span></label>`).join(''):empty('card','Способы оплаты ещё не подключены')}</div>${state.data.features.promo_codes?field('promo_code','Промокод','','text','Необязательно'):''}<button class="primary" style="width:100%;margin-top:15px" ${methods.length?'':'disabled'}>Оплатить ${money(tariff.price_rub)}</button></form>`);
+  openModal(`Оплата — ${tariff.name}`, `<form id="checkout-form"><input type="hidden" name="tariff_id" value="${tariff.id}"><div class="choice-list">${methods.length?methods.map((m,i)=>`<label class="choice payment-choice"><input type="radio" name="provider" value="${m.id}" ${i===0?'checked':''}>${paymentLogo(m.id)}<span><strong>${esc(m.name)}</strong><small>${m.id==='yookassa'?'Банковская карта или СБП':'Криптовалюта через Telegram'}</small></span></label>`).join(''):empty('card','Способы оплаты ещё не подключены')}</div>${state.data.features.promo_codes?field('promo_code','Промокод','','text','Необязательно'):''}<button class="primary" style="width:100%;margin-top:15px" ${methods.length?'':'disabled'}>Оплатить ${money(tariff.price_rub)}</button></form>`);
 }
 function ticketModal() { openModal('Новый тикет', `<form id="ticket-form">${field('subject','Тема','','text','Коротко опишите вопрос')}<div class="field"><label for="ticket-description">Описание</label><textarea id="ticket-description" name="description" maxlength="5000" required placeholder="Что случилось?"></textarea></div><button class="primary" style="width:100%">Отправить</button></form>`); }
 
@@ -431,7 +492,7 @@ document.addEventListener('click', async event => {
   const buy=event.target.closest('[data-buy]');if(buy){buyModal(buy.dataset.buy);return;}
   const action=event.target.closest('[data-action]')?.dataset.action;
   if(action==='new-ticket'){ticketModal();return;} if(action==='new-promo'){promoModal();return;}
-  if(action==='trial'){const button=event.target.closest('[data-action="trial"]');const old=button?.innerHTML;if(button){button.disabled=true;button.innerHTML=`${icon('loader')}<span>Подключаем…</span>`}try{await api('/api/trial',{method:'POST',body:'{}'});await loadBootstrap();toast('Пробный период активирован');}catch(e){if(button){button.disabled=false;button.innerHTML=old}toast(e.message,true)}return;}
+  if(action==='trial'){const button=event.target.closest('[data-action="trial"]');const old=button?.innerHTML;if(button){button.disabled=true;button.innerHTML=`${icon('loader')}<span>Подключаем…</span>`}try{liveMuteBootstrapUntil=Date.now()+900;await api('/api/trial',{method:'POST',body:'{}'});await loadBootstrap();toast('Пробный период активирован');}catch(e){if(button){button.disabled=false;button.innerHTML=old}toast(e.message,true)}return;}
   if(action==='connect'){const link=state.data.user.subscription.subscription_url;if(link){tg?.openLink?tg.openLink(link):window.open(link,'_blank')}return;}
   const copy=event.target.closest('[data-copy]');if(copy){await navigator.clipboard.writeText(copy.dataset.copy);toast('Ссылка скопирована');return;}
   const device=event.target.closest('[data-delete-device]');if(device&&confirm('Удалить это устройство?')){try{await api(`/api/devices/${encodeURIComponent(device.dataset.deleteDevice)}`,{method:'DELETE'});state.cache.devices=null;loadMore('devices');toast('Устройство удалено');}catch(e){toast(e.message,true)}return;}
@@ -440,7 +501,6 @@ document.addEventListener('click', async event => {
   const tariff=event.target.closest('[data-admin-tariff]');if(tariff){await tariffAdminModal(tariff.dataset.adminTariff);return;}
   const user=event.target.closest('[data-admin-user]');if(user){userAdminModal(user.dataset.adminUser);return;}
   const fullBlock=event.target.closest('[data-full-block-user]');if(fullBlock){if(!confirm('Заблокировать кабинет и отключить VPN?'))return;const form=fullBlock.closest('form');form.elements.blocked.checked=true;form.elements.subscription_status.value='DISABLED';form.requestSubmit();return;}
-  const ticket=event.target.closest('[data-admin-ticket]');if(ticket){adminTicketModal(ticket.dataset.adminTicket);return;}
   if(event.target.closest('[data-remove-tariff]')){const id=event.target.closest('[data-remove-tariff]').dataset.removeTariff;if(confirm('Удалить тариф?')){await api(`/api/admin/tariffs/${id}`,{method:'DELETE'});closeModal();state.cache['admin:tariffs']=null;loadAdmin('admin:tariffs','/api/admin/tariffs');toast('Тариф удалён')}return;}
   const promo=event.target.closest('[data-delete-promo]');if(promo&&confirm('Удалить промокод?')){await api(`/api/admin/promos/${promo.dataset.deletePromo}`,{method:'DELETE'});state.cache['admin:promos']=null;loadAdmin('admin:promos','/api/admin/promos');toast('Промокод удалён');return;}
   const resolve=event.target.closest('[data-resolve]');if(resolve){await api(`/api/admin/diagnostics/${resolve.dataset.resolve}`,{method:'PATCH',body:'{}'});state.cache['admin:diagnostics']=null;loadAdmin('admin:diagnostics','/api/admin/diagnostics');return;}
@@ -459,24 +519,71 @@ document.addEventListener('submit', async event => {
   event.preventDefault(); const form=event.target;
   try {
     if(form.id==='checkout-form'){const body=Object.fromEntries(new FormData(form));const out=await api('/api/payments/checkout',{method:'POST',body:JSON.stringify(body)});closeModal();tg?.openLink?tg.openLink(out.pay_url):window.open(out.pay_url,'_blank');toast(`Счёт на ${money(out.amount_rub)} создан`);return;}
-    if(form.id==='ticket-form'){const body=Object.fromEntries(new FormData(form));const ticket=await api('/api/tickets',{method:'POST',body:JSON.stringify(body)});state.data.tickets.unshift(ticket);closeModal();navigate(`ticket:${ticket.id}`);toast('Тикет создан');return;}
-    if(form.id==='chat-form'){const input=form.elements.text,draft=input.value.trim();if(!draft)return;const id=state.page.split(':')[1],idx=state.data.tickets.findIndex(t=>t.id===id),oldCount=Math.max(0,state.data.tickets[idx]?.messages?.length||0),button=$('button',form),buttonHTML=button.innerHTML;input.disabled=true;button.disabled=true;button.innerHTML=icon('loader');try{const ticket=await api(`/api/tickets/${id}/messages`,{method:'POST',body:JSON.stringify({text:draft})});state.data.tickets[idx]=ticket;const chat=$('.chat'),messages=ticket.messages||[];if(chat){if(messages.length>=oldCount&&oldCount>0){messages.slice(oldCount).forEach(message=>chat.insertAdjacentHTML('beforeend',ticketMessage(message)))}else{chat.innerHTML=ticketMessages(messages)}chat.scrollTo({top:chat.scrollHeight,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'})}const status=$('.ticket-context .status');if(status){status.className=`status ${ticket.status}`;status.textContent=statusLabel(ticket.status)}input.value='';}finally{if(document.contains(form)){input.disabled=false;button.disabled=false;button.innerHTML=buttonHTML;input.focus()}}return;}
-    if(form.dataset.settingForm){const key=form.dataset.settingForm,body=collectForm(form);const cacheKey=`setting:${key}`,previous=state.cache[cacheKey]||{};const out=await api(`/api/admin/settings/${key}`,{method:'PUT',body:JSON.stringify({value:body})});state.cache[cacheKey]=key==='theme'?{...previous,...out,theme_templates:out.theme_templates||previous.theme_templates}:out;if(key==='theme'){state.data.theme={...state.data.theme,...out.value};applyTheme(state.data.theme)}if(key==='language')state.data.language=out.value;if(key==='emergency')state.data.emergency=out.value;if(key==='features')state.data.features={...state.data.features,...out.value};if(key==='content')state.data.content={...state.data.content,...out.value};if(key==='more_order')state.data.more_order=out.value.items;toast('Сохранено');if(!['integrations','content'].includes(key))render();return;}
-    if(form.id==='tariff-admin-form'){const id=form.dataset.id,body=collectForm(form);body.price_rub=Number(body.price_rub);['days','traffic_gb','device_limit','position'].forEach(k=>body[k]=Number(body[k]));const method=id==='new'?'POST':'PUT',path=id==='new'?'/api/admin/tariffs':`/api/admin/tariffs/${id}`;await api(path,{method,body:JSON.stringify(body)});closeModal();state.cache['admin:tariffs']=null;await loadAdmin('admin:tariffs','/api/admin/tariffs');toast('Тариф сохранён');return;}
+    if(form.id==='ticket-form'){const body=Object.fromEntries(new FormData(form));liveMuteSupportUntil=Date.now()+800;const ticket=await api('/api/tickets',{method:'POST',body:JSON.stringify(body)});state.data.tickets.unshift(ticket);closeModal();navigate(`ticket:${ticket.id}`);toast('Тикет создан');return;}
+    if(form.id==='chat-form'){const input=form.elements.text,draft=input.value.trim();if(!draft)return;const id=state.page.split(':')[1],currentTicket=visibleTickets().find(t=>t.id===id),oldCount=Math.max(0,currentTicket?.messages?.length||0),button=$('button',form),buttonHTML=button.innerHTML;input.disabled=true;button.disabled=true;button.innerHTML=icon('loader');try{liveMuteSupportUntil=Date.now()+800;const ticket=await api(`/api/tickets/${id}/messages`,{method:'POST',body:JSON.stringify({text:draft})});replaceTicket(ticket);const chat=$('.chat'),messages=ticket.messages||[];if(chat){if(messages.length>=oldCount&&oldCount>0){messages.slice(oldCount).forEach(message=>chat.insertAdjacentHTML('beforeend',ticketMessage(message)))}else{chat.innerHTML=ticketMessages(messages)}chat.scrollTo({top:chat.scrollHeight,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'})}const status=$('.ticket-state > .status');if(status){status.className=`status ${ticket.status}`;status.textContent=statusLabel(ticket.status)}input.value='';}finally{if(document.contains(form)){input.disabled=false;button.disabled=false;button.innerHTML=buttonHTML;input.focus()}}return;}
+    if(form.dataset.settingForm){const key=form.dataset.settingForm,body=collectForm(form);const cacheKey=`setting:${key}`,previous=state.cache[cacheKey]||{};liveMuteBootstrapUntil=Date.now()+900;const out=await api(`/api/admin/settings/${key}`,{method:'PUT',body:JSON.stringify({value:body})});state.cache[cacheKey]=key==='theme'?{...previous,...out,theme_templates:out.theme_templates||previous.theme_templates}:out;if(key==='theme'){state.data.theme={...state.data.theme,...out.value};applyTheme(state.data.theme)}if(key==='language')state.data.language=out.value;if(key==='emergency')state.data.emergency=out.value;if(key==='features')state.data.features={...state.data.features,...out.value};if(key==='content')state.data.content={...state.data.content,...out.value};if(key==='more_order')state.data.more_order=out.value.items;toast('Сохранено');if(!['integrations','content'].includes(key))render();return;}
+    if(form.id==='tariff-admin-form'){const id=form.dataset.id,body=collectForm(form);body.price_rub=Number(body.price_rub);['days','traffic_gb','device_limit','position'].forEach(k=>body[k]=Number(body[k]));const method=id==='new'?'POST':'PUT',path=id==='new'?'/api/admin/tariffs':`/api/admin/tariffs/${id}`;liveMuteBootstrapUntil=Date.now()+900;await api(path,{method,body:JSON.stringify(body)});closeModal();state.cache['admin:tariffs']=null;await loadAdmin('admin:tariffs','/api/admin/tariffs');toast('Тариф сохранён');return;}
     if(form.id==='user-admin-form'){const body=collectForm(form);['add_days','add_traffic_gb','device_limit'].forEach(k=>body[k]=Number(body[k]));await api(`/api/admin/users/${form.dataset.id}`,{method:'PATCH',body:JSON.stringify(body)});closeModal();state.cache['admin:users']=null;await loadAdmin('admin:users','/api/admin/users');toast('Пользователь обновлён');return;}
     if(form.id==='promo-form'){const body=collectForm(form);body.discount_percent=Number(body.discount_percent);body.max_uses=Number(body.max_uses);await api('/api/admin/promos',{method:'POST',body:JSON.stringify(body)});closeModal();state.cache['admin:promos']=null;await loadAdmin('admin:promos','/api/admin/promos');toast('Промокод создан');return;}
     if(form.id==='user-search'){state.cache['admin:users']=null;await loadAdmin('admin:users',`/api/admin/users?q=${encodeURIComponent(form.elements.q.value)}`);return;}
-    if(form.id==='admin-ticket-chat'){const id=form.dataset.id,textValue=form.elements.text.value.trim();if(!textValue)return;await api(`/api/tickets/${id}/messages`,{method:'POST',body:JSON.stringify({text:textValue})});state.cache['admin:tickets']=await api('/api/admin/tickets');closeModal();adminTicketModal(id);return;}
   } catch(e) { toast(e.message,true); }
 });
 
 function collectForm(form) { const out={};$$('[name]',form).forEach(input=>{const path=input.name.split('.');let cursor=out;path.slice(0,-1).forEach(part=>cursor=cursor[part]||(cursor[part]={}));const key=path[path.length-1];if(input.hasAttribute('data-array-field')){if(!Array.isArray(cursor[key]))cursor[key]=[];if(input.checked)cursor[key].push(input.value);return;}let value=input.type==='checkbox'?input.checked:input.value;if(input.type==='number')value=Number(value);cursor[key]=value;});if(form.dataset.settingForm==='more_order')out.items=(out.items||'').split(',').filter(Boolean);return out;}
 
-function adminTicketModal(id){const ticket=state.cache['admin:tickets'].find(t=>t.id===id);openModal(ticket.subject,`<div class="chat" style="padding-bottom:8px;max-height:48vh;overflow:auto">${ticket.messages.map(m=>`<div class="bubble ${m.is_admin?'mine':''}">${esc(m.text)}<small>${formatDate(m.created_at)}</small></div>`).join('')}</div><form id="admin-ticket-chat" data-id="${id}"><div class="field"><label>Ответ</label><textarea name="text" maxlength="5000"></textarea></div><button class="primary" style="width:100%">Ответить</button></form><div class="inline-actions"><button class="compact-button" data-ticket-status="${id}:open">Открыть</button><button class="compact-button" data-ticket-status="${id}:closed">Закрыть</button></div>`)}
-
-document.addEventListener('click',async event=>{const status=event.target.closest('[data-ticket-status]');if(!status)return;const [id,value]=status.dataset.ticketStatus.split(':');try{await api(`/api/admin/tickets/${id}`,{method:'PATCH',body:JSON.stringify({status:value})});state.cache['admin:tickets']=await api('/api/admin/tickets');closeModal();toast('Статус изменён');render()}catch(e){toast(e.message,true)}});
+document.addEventListener('click',async event=>{const status=event.target.closest('[data-ticket-status]');if(!status)return;const [id,value]=status.dataset.ticketStatus.split(':');try{liveMuteSupportUntil=Date.now()+800;const ticket=await api(`/api/admin/tickets/${id}`,{method:'PATCH',body:JSON.stringify({status:value})});replaceTicket(ticket);toast('Статус изменён');render()}catch(e){toast(e.message,true)}});
 document.addEventListener('keydown', event => { if(event.key==='Escape'&&$('#modal-root').children.length)closeModal(); });
 document.addEventListener('input', event => { if(event.target.matches('input[type="color"]')){event.target.closest('.color-field')?.querySelector('code')?.replaceChildren(event.target.value);const form=event.target.closest('form');if(form)applyTheme({...state.data.theme,...collectForm(form)})} });
+
+let liveController=null,liveConnecting=false,liveReconnectTimer=null,liveBackoff=1000,liveBootstrapLoading=false,liveBootstrapQueued=false,liveMuteBootstrapUntil=0,liveMuteSupportUntil=0;
+function handleLiveEvent(event) {
+  if(event.type==='ready'){
+    refreshBootstrapLive();
+    if(state.data.user.is_admin&&(state.page==='support'||state.page.startsWith('ticket:')))loadSupportTickets();
+    return;
+  }
+  if(event.type==='support'){
+    if(Date.now()>=liveMuteSupportUntil)loadSupportTickets();
+    return;
+  }
+  if((event.type==='account'||event.type==='bootstrap')&&Date.now()>=liveMuteBootstrapUntil)refreshBootstrapLive();
+}
+async function refreshBootstrapLive() {
+  if(liveBootstrapLoading){liveBootstrapQueued=true;return}
+  liveBootstrapLoading=true;
+  const page=state.page,view=$('#page-view'),input=$('#chat-form input'),snapshot={top:view?.scrollTop||0,draft:input?.value||'',focused:document.activeElement===input};
+  try{
+    state.data=await api('/api/bootstrap');
+    applyTheme(state.data.theme);
+    render();
+    requestAnimationFrame(()=>{if(state.page!==page)return;const next=$('#page-view'),nextInput=$('#chat-form input');if(next)next.scrollTop=snapshot.top;if(nextInput){nextInput.value=snapshot.draft;if(snapshot.focused)nextInput.focus()}});
+  }catch(_){/* The stream will retry; ordinary API actions still surface errors. */}
+  finally{liveBootstrapLoading=false;if(liveBootstrapQueued){liveBootstrapQueued=false;refreshBootstrapLive()}}
+}
+async function connectLiveUpdates() {
+  if(state.preview||!state.token||liveConnecting||document.visibilityState==='hidden')return;
+  liveConnecting=true;
+  const controller=new AbortController();liveController=controller;
+  try{
+    const response=await fetch('/api/events',{headers:{Accept:'text/event-stream',Authorization:`Bearer ${state.token}`},cache:'no-store',signal:controller.signal});
+    if(!response.ok||!response.body)throw new Error('live stream unavailable');
+    liveBackoff=1000;
+    const reader=response.body.getReader(),decoder=new TextDecoder();let buffer='';
+    while(true){
+      const {value,done}=await reader.read();if(done)break;
+      buffer+=decoder.decode(value,{stream:true}).replace(/\r/g,'');
+      const blocks=buffer.split('\n\n');buffer=blocks.pop()||'';
+      blocks.forEach(block=>{const data=block.split('\n').filter(line=>line.startsWith('data:')).map(line=>line.slice(5).trim()).join('\n');if(!data)return;try{handleLiveEvent(JSON.parse(data))}catch(_){}});
+    }
+  }catch(error){if(error.name!=='AbortError')liveBackoff=Math.min(15000,Math.round(liveBackoff*1.7))}
+  finally{
+    if(liveController===controller)liveController=null;
+    liveConnecting=false;
+    if(document.visibilityState!=='hidden'){clearTimeout(liveReconnectTimer);liveReconnectTimer=setTimeout(connectLiveUpdates,liveBackoff)}
+  }
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){clearTimeout(liveReconnectTimer);liveController?.abort()}else connectLiveUpdates()});
+window.addEventListener('pagehide',()=>liveController?.abort());
 
 async function loadBootstrap() { state.data = await api('/api/bootstrap'); applyTheme(state.data.theme); render(); }
 
@@ -490,6 +597,7 @@ async function init() {
       state.token=auth.token;sessionStorage.setItem('tgs_session',state.token);
     }
     await loadBootstrap();
+    connectLiveUpdates();
     if (new URLSearchParams(location.search).get('page') === 'trial' && !state.data.user.trial_used) setTimeout(()=>document.querySelector('[data-action="trial"]')?.click(),250);
   } catch(e) { sessionStorage.removeItem('tgs_session'); $('#app').innerHTML=`<main class="locked-screen">${icon('link')}<h1>TGS VPN</h1><p>${esc(e.message)}</p></main>`; }
 }

@@ -27,10 +27,11 @@ type Server struct {
 	Telegram    *telegram.Client
 	Logger      *slog.Logger
 	BotUsername string
+	Events      *liveHub
 }
 
 func New(cfg config.Config, st *store.Store, logger *slog.Logger) *Server {
-	return &Server{Config: cfg, Store: st, Payments: payments.New(), Telegram: telegram.New(cfg.TelegramToken), Logger: logger, BotUsername: "rwTGS_bot"}
+	return &Server{Config: cfg, Store: st, Payments: payments.New(), Telegram: telegram.New(cfg.TelegramToken), Logger: logger, BotUsername: "rwTGS_bot", Events: newLiveHub()}
 }
 
 func (s *Server) RunMaintenance(ctx context.Context) {
@@ -497,22 +498,49 @@ func (s *Server) completePayment(ctx context.Context, p store.Payment) error {
 		}
 	}
 	ok = true
-	_ = s.Telegram.Send(ctx, u.TelegramID, "Оплата прошла. Подписка обновлена.", nil)
-	s.notifyAdmins(ctx, fmt.Sprintf("Новая оплата: %s — %.2f ₽ (%s)", u.FirstName, float64(p.AmountKopecks)/100, p.Provider))
+	s.sendContentMessage(ctx, u.TelegramID, "payment_success_message", "<b>Оплата прошла</b>\nПодписка обновлена.", nil, nil)
+	s.notifyAdminsContent(ctx, "payment_admin_message", "<b>Новая оплата</b>\n{name} · {amount} ₽ · {provider}", map[string]string{"name": u.FirstName, "amount": fmt.Sprintf("%.2f", float64(p.AmountKopecks)/100), "provider": p.Provider})
+	s.publishAccount(u.ID)
 	return nil
 }
 
-func (s *Server) notifyAdmins(ctx context.Context, message string) {
+func (s *Server) notifyAdminsContent(ctx context.Context, key, fallback string, values map[string]string) {
+	content, _ := s.Store.Setting(ctx, "content")
+	message := telegram.RenderHTML(text(content[key]), values)
+	if message == "" {
+		message = telegram.RenderHTML(fallback, values)
+	}
+	send := func(client *telegram.Client, chatID int64) {
+		if err := client.SendHTML(ctx, chatID, message, nil); err != nil {
+			_ = client.Send(ctx, chatID, telegram.PlainText(message), nil)
+		}
+	}
 	settings, _ := s.Store.Setting(ctx, "integrations")
 	n := object(settings["notifications"])
 	if boolean(n["enabled"]) && text(n["bot_token"]) != "" && text(n["chat_id"]) != "" {
 		id, _ := strconv.ParseInt(text(n["chat_id"]), 10, 64)
-		_ = telegram.New(text(n["bot_token"])).Send(ctx, id, message, nil)
+		send(telegram.New(text(n["bot_token"])), id)
 		return
 	}
 	for id := range s.Config.AdminTelegramIDs {
-		_ = s.Telegram.Send(ctx, id, message, nil)
+		send(s.Telegram, id)
 	}
+}
+
+func (s *Server) sendContentMessage(ctx context.Context, chatID int64, key, fallback string, values map[string]string, markup any) error {
+	content, _ := s.Store.Setting(ctx, "content")
+	message := telegram.RenderHTML(text(content[key]), values)
+	if message == "" {
+		message = telegram.RenderHTML(fallback, values)
+	}
+	if err := s.Telegram.SendHTML(ctx, chatID, message, markup); err == nil {
+		return nil
+	}
+	fallbackErr := s.Telegram.Send(ctx, chatID, telegram.PlainText(message), markup)
+	if fallbackErr != nil && s.Logger != nil {
+		s.Logger.Warn("send editable telegram message", "key", key, "error", fallbackErr)
+	}
+	return fallbackErr
 }
 
 func validPromo(p store.Promo) error {

@@ -30,6 +30,7 @@ func (s *Server) Handler(static fs.FS) http.Handler {
 	mux.HandleFunc("POST /api/webhooks/remnawave", s.webhookRemnawave)
 
 	mux.Handle("GET /api/bootstrap", s.auth(http.HandlerFunc(s.bootstrap)))
+	mux.Handle("GET /api/events", s.auth(http.HandlerFunc(s.events)))
 	mux.Handle("POST /api/trial", s.auth(http.HandlerFunc(s.trial)))
 	mux.Handle("GET /api/tickets", s.auth(http.HandlerFunc(s.tickets)))
 	mux.Handle("POST /api/tickets", s.auth(http.HandlerFunc(s.createTicket)))
@@ -254,7 +255,8 @@ func (s *Server) trial(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u.TrialUsed = true
-	s.notifyAdmins(r.Context(), fmt.Sprintf("Активирован пробный период: %s (%d)", u.FirstName, u.TelegramID))
+	s.notifyAdminsContent(r.Context(), "trial_admin_message", "<b>Активирован пробный период</b>\n{name} · <code>{id}</code>", map[string]string{"name": u.FirstName, "id": strconv.FormatInt(u.TelegramID, 10)})
+	s.publishAccount(u.ID)
 	writeJSON(w, 200, map[string]any{"ok": true, "user": publicUser(*u)})
 }
 
@@ -268,6 +270,11 @@ func (s *Server) tickets(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, rows)
 }
 func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
+	u := current(r)
+	if u.IsAdmin {
+		writeError(w, http.StatusForbidden, "Администратор отвечает на обращения пользователей")
+		return
+	}
 	var body struct {
 		Subject     string `json:"subject"`
 		Description string `json:"description"`
@@ -286,13 +293,13 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "Поддержка временно отключена")
 		return
 	}
-	u := current(r)
 	ticket, err := s.Store.CreateTicket(r.Context(), u.ID, body.Subject, body.Description)
 	if err != nil {
 		writeError(w, 500, "Не удалось создать тикет")
 		return
 	}
-	s.notifyAdmins(r.Context(), fmt.Sprintf("Новый тикет: %s\nПользователь: %s (%d)", ticket.Subject, u.FirstName, u.TelegramID))
+	s.notifyAdminsContent(r.Context(), "new_ticket_admin_message", "<b>Новый тикет</b>\n{subject}\n{name} · <code>{id}</code>", map[string]string{"subject": ticket.Subject, "name": u.FirstName, "id": strconv.FormatInt(u.TelegramID, 10)})
+	s.publishSupport(ticket.UserID, ticket.ID)
 	writeJSON(w, 201, ticket)
 }
 func (s *Server) ticketMessage(w http.ResponseWriter, r *http.Request) {
@@ -335,10 +342,11 @@ func (s *Server) ticketMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if u.IsAdmin {
 		owner, _ := s.Store.UserByID(r.Context(), ticket.UserID)
-		_ = s.Telegram.Send(r.Context(), owner.TelegramID, "Поддержка ответила в тикете «"+ticket.Subject+"». Откройте Mini App.", nil)
+		s.sendContentMessage(r.Context(), owner.TelegramID, "support_reply_message", "Поддержка ответила в тикете «<b>{subject}</b>». Откройте Mini App.", map[string]string{"subject": ticket.Subject}, nil)
 	} else {
-		s.notifyAdmins(r.Context(), "Новое сообщение в тикете «"+ticket.Subject+"»")
+		s.notifyAdminsContent(r.Context(), "ticket_message_admin_message", "Новое сообщение в тикете «<b>{subject}</b>».", map[string]string{"subject": ticket.Subject})
 	}
+	s.publishSupport(ticket.UserID, ticket.ID)
 	writeJSON(w, 200, ticket)
 }
 
@@ -563,6 +571,7 @@ func (s *Server) webhookRemnawave(w http.ResponseWriter, r *http.Request) {
 	if id > 0 {
 		if u, err := s.Store.UserByTelegram(r.Context(), id); err == nil {
 			s.refresh(r.Context(), &u)
+			s.publishAccount(u.ID)
 		}
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})

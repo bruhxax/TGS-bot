@@ -35,8 +35,7 @@ func (s *Server) adminBroadcastDraft(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "Не удалось создать черновик")
 		return
 	}
-	message := "Отправьте следующим сообщением материал для рассылки. Можно использовать фото, форматирование и премиум-эмодзи — бот скопирует сообщение без изменений."
-	if err = s.Telegram.Send(r.Context(), u.TelegramID, message, nil); err != nil {
+	if err = s.sendContentMessage(r.Context(), u.TelegramID, "broadcast_prompt_message", "Отправьте следующим сообщением материал для рассылки. Фото, форматирование и премиум-эмодзи сохранятся.", nil, nil); err != nil {
 		writeError(w, 502, "Не удалось открыть ввод в Telegram")
 		return
 	}
@@ -143,7 +142,7 @@ func (s *Server) adminBroadcastSend(w http.ResponseWriter, r *http.Request) {
 func (s *Server) sendBroadcastCopies(ctx context.Context, adminChatID int64, draft store.Broadcast) {
 	if err := s.Store.PrepareBroadcastDeliveries(ctx, draft.ID); err != nil {
 		_ = s.Store.FinishBroadcast(ctx, draft.ID, "failed", 0, 0)
-		_ = s.Telegram.Send(ctx, adminChatID, "Рассылка не запущена: не удалось получить пользователей.", nil)
+		s.sendContentMessage(ctx, adminChatID, "broadcast_start_error_message", "Рассылка не запущена: не удалось получить пользователей.", nil, nil)
 		return
 	}
 	markup := broadcastMarkup(draft.Buttons)
@@ -174,5 +173,5 @@ func (s *Server) sendBroadcastCopies(ctx context.Context, adminChatID int64, dra
 		return
 	}
 	_ = s.Store.FinishBroadcast(ctx, draft.ID, "completed", sent, failed)
-	_ = s.Telegram.Send(ctx, adminChatID, fmt.Sprintf("Рассылка завершена. Доставлено: %d, ошибок: %d.", sent, failed), nil)
+	s.sendContentMessage(ctx, adminChatID, "broadcast_complete_message", "Рассылка завершена. Доставлено: <b>{sent}</b>, ошибок: <b>{failed}</b>.", map[string]string{"sent": fmt.Sprint(sent), "failed": fmt.Sprint(failed)}, nil)
 }
