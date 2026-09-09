@@ -54,6 +54,7 @@ type Payment struct {
 	AmountKopecks     int64          `json:"amount_kopecks"`
 	PromoCode         string         `json:"promo_code"`
 	Snapshot          map[string]any `json:"snapshot"`
+	Entitlement       map[string]any `json:"entitlement"`
 	CreatedAt         time.Time      `json:"created_at"`
 	PaidAt            *time.Time     `json:"paid_at"`
 }
@@ -100,14 +101,22 @@ type Diagnostic struct {
 }
 
 type Broadcast struct {
-	ID          string              `json:"id"`
-	AdminUserID int64               `json:"admin_user_id"`
-	Text        string              `json:"text"`
-	Buttons     []map[string]string `json:"buttons"`
-	Status      string              `json:"status"`
-	SentCount   int                 `json:"sent_count"`
-	FailedCount int                 `json:"failed_count"`
-	CreatedAt   time.Time           `json:"created_at"`
+	ID              string              `json:"id"`
+	AdminUserID     int64               `json:"admin_user_id"`
+	Text            string              `json:"text"`
+	SourceChatID    int64               `json:"source_chat_id"`
+	SourceMessageID int                 `json:"source_message_id"`
+	Buttons         []map[string]string `json:"buttons"`
+	Status          string              `json:"status"`
+	SentCount       int                 `json:"sent_count"`
+	FailedCount     int                 `json:"failed_count"`
+	CreatedAt       time.Time           `json:"created_at"`
+	UpdatedAt       time.Time           `json:"updated_at"`
+}
+
+type BroadcastDelivery struct {
+	ChatID   int64
+	Attempts int
 }
 
 type TelegramUser struct {

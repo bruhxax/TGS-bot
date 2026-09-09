@@ -35,6 +35,7 @@ type Message struct {
 	From      User   `json:"from"`
 	Chat      Chat   `json:"chat"`
 	Text      string `json:"text"`
+	Caption   string `json:"caption"`
 }
 type CallbackQuery struct {
 	ID      string  `json:"id"`
@@ -84,6 +85,17 @@ func (c *Client) Send(ctx context.Context, chatID int64, text string, markup any
 	}
 	return c.Call(ctx, "sendMessage", body, nil)
 }
+func (c *Client) CopyMessage(ctx context.Context, chatID, fromChatID int64, messageID int, markup any) (int, error) {
+	body := map[string]any{"chat_id": chatID, "from_chat_id": fromChatID, "message_id": messageID}
+	if markup != nil {
+		body["reply_markup"] = markup
+	}
+	var result struct {
+		MessageID int `json:"message_id"`
+	}
+	err := c.Call(ctx, "copyMessage", body, &result)
+	return result.MessageID, err
+}
 func (c *Client) AnswerCallback(ctx context.Context, id, text string) error {
 	return c.Call(ctx, "answerCallbackQuery", map[string]any{"callback_query_id": id, "text": text}, nil)
 }
@@ -113,6 +125,16 @@ func WebAppButton(text, link string) map[string]any {
 	return map[string]any{"text": text, "web_app": map[string]string{"url": link}}
 }
 func URLButton(text, link string) map[string]any { return map[string]any{"text": text, "url": link} }
+func StyledURLButton(text, link, style, customEmojiID string) map[string]any {
+	button := map[string]any{"text": text, "url": link}
+	if style == "primary" || style == "success" || style == "danger" {
+		button["style"] = style
+	}
+	if customEmojiID != "" {
+		button["icon_custom_emoji_id"] = customEmojiID
+	}
+	return button
+}
 func CallbackButton(text, data string) map[string]any {
 	return map[string]any{"text": text, "callback_data": data}
 }

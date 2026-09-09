@@ -37,6 +37,11 @@ func (s *Server) registerAdmin(mux *http.ServeMux) {
 	mux.Handle("PATCH /api/admin/tickets/{id}", s.admin(http.HandlerFunc(s.adminTicketStatus)))
 	mux.Handle("GET /api/admin/diagnostics", s.admin(http.HandlerFunc(s.adminDiagnostics)))
 	mux.Handle("PATCH /api/admin/diagnostics/{id}", s.admin(http.HandlerFunc(s.adminResolveDiagnostic)))
+	mux.Handle("GET /api/admin/broadcast", s.admin(http.HandlerFunc(s.adminBroadcast)))
+	mux.Handle("POST /api/admin/broadcast/draft", s.admin(http.HandlerFunc(s.adminBroadcastDraft)))
+	mux.Handle("PUT /api/admin/broadcast/{id}/buttons", s.admin(http.HandlerFunc(s.adminBroadcastButtons)))
+	mux.Handle("POST /api/admin/broadcast/{id}/test", s.admin(http.HandlerFunc(s.adminBroadcastTest)))
+	mux.Handle("POST /api/admin/broadcast/{id}/send", s.admin(http.HandlerFunc(s.adminBroadcastSend)))
 }
 
 func (s *Server) adminOverview(w http.ResponseWriter, r *http.Request) {
@@ -151,12 +156,37 @@ func (s *Server) adminSquads(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "Ошибка настроек")
 		return
 	}
-	rows, err := client.Squads(r.Context())
+	internal, err := client.InternalSquads(r.Context())
 	if err != nil {
 		writeError(w, 502, err.Error())
 		return
 	}
-	writeJSON(w, 200, rows)
+	external, err := client.ExternalSquads(r.Context())
+	if err != nil {
+		writeError(w, 502, err.Error())
+		return
+	}
+	normalize := func(rows []map[string]any) []map[string]string {
+		out := make([]map[string]string, 0, len(rows))
+		for _, row := range rows {
+			uuid := text(row["uuid"])
+			if uuid == "" {
+				uuid = fmt.Sprint(row["id"])
+			}
+			name := text(row["name"])
+			if name == "" {
+				name = text(row["title"])
+			}
+			if uuid != "" && uuid != "<nil>" {
+				if name == "" {
+					name = uuid
+				}
+				out = append(out, map[string]string{"uuid": uuid, "name": name})
+			}
+		}
+		return out
+	}
+	writeJSON(w, 200, map[string]any{"internal": normalize(internal), "external": normalize(external)})
 }
 func (s *Server) adminTestIntegration(w http.ResponseWriter, r *http.Request) {
 	kind := r.PathValue("kind")
@@ -300,6 +330,7 @@ func (s *Server) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 		Blocked            *bool  `json:"blocked"`
 		Admin              *bool  `json:"admin"`
 		SubscriptionStatus string `json:"subscription_status"`
+		Reason             string `json:"reason"`
 	}
 	if !decode(w, r, &body) {
 		return
@@ -309,6 +340,11 @@ func (s *Server) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.SubscriptionStatus = strings.ToUpper(strings.TrimSpace(body.SubscriptionStatus))
+	body.Reason = strings.TrimSpace(body.Reason)
+	if len([]rune(body.Reason)) > 500 {
+		writeError(w, 400, "Причина слишком длинная")
+		return
+	}
 	if body.SubscriptionStatus != "" && body.SubscriptionStatus != "ACTIVE" && body.SubscriptionStatus != "DISABLED" {
 		writeError(w, 400, "Доступны статусы ACTIVE и DISABLED")
 		return
@@ -345,14 +381,30 @@ func (s *Server) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.AddDays > 0 || body.AddTrafficGB > 0 || body.DeviceLimit != nil {
-		limit := target.DeviceLimit
-		if body.DeviceLimit != nil {
-			limit = *body.DeviceLimit
+		mode := trafficKeep
+		if body.AddTrafficGB > 0 {
+			mode = trafficAdd
 		}
-		if err = s.applyEntitlement(r.Context(), &target, entitlement{Days: body.AddDays, TrafficGB: body.AddTrafficGB, DeviceLimit: limit}); err != nil {
+		if err = s.applyEntitlement(r.Context(), &target, entitlement{Days: body.AddDays, TrafficGB: body.AddTrafficGB, TrafficMode: mode, DeviceLimit: body.DeviceLimit, Activate: body.AddDays > 0 && body.SubscriptionStatus != "DISABLED"}); err != nil {
 			writeError(w, 502, "Remnawave не применил изменения")
 			return
 		}
+	}
+	details := map[string]any{"add_days": body.AddDays, "add_traffic_gb": body.AddTrafficGB, "subscription_status": body.SubscriptionStatus}
+	if body.Blocked != nil {
+		details["cabinet_blocked"] = *body.Blocked
+	}
+	if body.Admin != nil {
+		details["is_admin"] = *body.Admin
+	}
+	if body.DeviceLimit != nil {
+		details["device_limit"] = *body.DeviceLimit
+	}
+	if auditErr := s.Store.AdminAudit(r.Context(), current(r).ID, target.ID, "update_user", body.Reason, details); auditErr != nil {
+		s.record(r.Context(), "admin", "Не удалось записать действие администратора", map[string]any{"error": auditErr.Error(), "target_user_id": target.ID})
+	}
+	if body.Blocked != nil && *body.Blocked && body.SubscriptionStatus == "DISABLED" {
+		_ = s.Telegram.Send(r.Context(), target.TelegramID, "Доступ к кабинету и VPN временно заблокирован администратором.", nil)
 	}
 	target, _ = s.Store.UserByID(r.Context(), id)
 	writeJSON(w, 200, adminUserDTO(target))

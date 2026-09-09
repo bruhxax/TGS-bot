@@ -235,12 +235,24 @@ func (s *Server) trial(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 409, "Пробный период уже был использован")
 		return
 	}
-	err := s.applyEntitlement(r.Context(), u, entitlement{Days: number(cfg["days"], 3), TrafficGB: number(cfg["traffic_gb"], 10), DeviceLimit: number(cfg["device_limit"], 1), InternalSquads: stringsList(cfg["internal_squads"]), ExternalSquadUUID: text(cfg["external_squad_uuid"])})
+	reserved, err := s.Store.ReserveTrial(r.Context(), u.ID)
 	if err != nil {
+		writeError(w, 500, "Не удалось зарезервировать пробный период")
+		return
+	}
+	if !reserved {
+		writeError(w, 409, "Пробный период уже был использован")
+		return
+	}
+	limit := number(cfg["device_limit"], 1)
+	err = s.applyEntitlement(r.Context(), u, entitlement{Days: number(cfg["days"], 3), TrafficGB: number(cfg["traffic_gb"], 10), TrafficMode: trafficPlan, DeviceLimit: &limit, InternalSquads: stringsList(cfg["internal_squads"]), ExternalSquadUUID: text(cfg["external_squad_uuid"]), UpdateSquads: true, Activate: true})
+	if err != nil {
+		if releaseErr := s.Store.ReleaseTrial(context.Background(), u.ID); releaseErr != nil {
+			s.record(context.Background(), "trial", "Не удалось освободить резерв триала", map[string]any{"error": releaseErr.Error(), "user_id": u.ID})
+		}
 		writeError(w, 502, "Remnawave не выдал подписку. Проверьте диагностику.")
 		return
 	}
-	_ = s.Store.SetTrialUsed(r.Context(), u.ID)
 	u.TrialUsed = true
 	s.notifyAdmins(r.Context(), fmt.Sprintf("Активирован пробный период: %s (%d)", u.FirstName, u.TelegramID))
 	writeJSON(w, 200, map[string]any{"ok": true, "user": publicUser(*u)})
@@ -387,7 +399,11 @@ func (s *Server) checkout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 502, err.Error())
 		return
 	}
-	_ = s.Store.SetPaymentProviderID(r.Context(), p.ID, providerID)
+	if err = s.Store.SetPaymentProviderID(r.Context(), p.ID, providerID); err != nil {
+		s.record(r.Context(), "payments", "Не удалось сохранить идентификатор платежа", map[string]any{"error": err.Error(), "payment_id": p.ID, "provider": body.Provider})
+		writeError(w, 500, "Платёж создан, но не сохранён. Обратитесь в поддержку и не оплачивайте счёт повторно.")
+		return
+	}
 	writeJSON(w, 200, map[string]any{"payment_id": p.ID, "pay_url": payURL, "amount_rub": float64(amount) / 100})
 }
 func (s *Server) paymentStatus(w http.ResponseWriter, r *http.Request) {

@@ -109,24 +109,98 @@ chmod +x install.sh
 
 ## 🧰 Управление на VPS
 
+Все команды выполняются из каталога проекта:
+
 ```bash
 cd /opt/tgs-bot
+```
 
-# Посмотреть состояние контейнеров
+### Статус и логи
+
+```bash
+# Состояние всех контейнеров
 docker compose ps
 
-# Смотреть логи приложения
-docker compose logs -f app
+# Логи бота в реальном времени
+docker compose logs -f --tail=200 app
 
-# Обновить проект после git pull
-git pull
-docker compose up -d --build
+# Последние логи базы данных
+docker compose logs --tail=200 db
+```
 
-# Остановить проект
+### Запуск, остановка и перезапуск
+
+```bash
+# Запустить весь проект
+docker compose up -d
+
+# Остановить без удаления базы
+docker compose stop
+
+# Перезапустить только бота
+docker compose restart app
+
+# Остановить и удалить контейнеры, сохранив данные
 docker compose down
 ```
 
-Данные PostgreSQL хранятся в Docker volume и не удаляются обычной командой `docker compose down`.
+### Обновление из GitHub
+
+Перед обновлением закоммить или убери свои локальные правки на VPS. `--ff-only` специально останавливает обновление при конфликте и не перезаписывает чужие изменения.
+
+```bash
+cd /opt/tgs-bot
+git fetch origin
+git pull --ff-only origin main
+docker compose up -d --build
+docker compose ps
+curl -fsS https://твой-домен/health
+```
+
+### Резервная копия PostgreSQL
+
+```bash
+cd /opt/tgs-bot
+mkdir -p /opt/tgs-bot/backups
+docker compose exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
+  > "/opt/tgs-bot/backups/tgsbot-$(date +%Y%m%d-%H%M%S).dump"
+ls -lh /opt/tgs-bot/backups
+```
+
+### Восстановление PostgreSQL
+
+Сначала укажи точное имя нужной копии. На время восстановления бот останавливается.
+
+```bash
+cd /opt/tgs-bot
+docker compose stop app
+docker compose exec -T db sh -c 'pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists' \
+  < /opt/tgs-bot/backups/tgsbot-YYYYMMDD-HHMMSS.dump
+docker compose up -d app
+docker compose ps
+```
+
+### Очистка базы или полное удаление
+
+> Команды ниже необратимы. Сначала сделай резервную копию.
+
+```bash
+# Полностью очистить только базу TGS-bot и создать её заново
+cd /opt/tgs-bot
+docker compose down
+docker volume rm tgs_bot_v2_postgres
+docker compose up -d --build
+```
+
+```bash
+# Полностью удалить TGS-bot, его БД и данные встроенного Caddy
+cd /opt/tgs-bot
+docker compose down --volumes --remove-orphans
+cd /opt
+rm -rf /opt/tgs-bot
+```
+
+Обычные `stop`, `restart`, `up` и `down` не удаляют PostgreSQL volume. Другие проекты и контейнеры этими командами не затрагиваются.
 
 ## 🧑‍💻 Разработка
 

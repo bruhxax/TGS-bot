@@ -1,6 +1,9 @@
 package server
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestDiscounted(t *testing.T) {
 	tests := []struct {
@@ -39,5 +42,36 @@ func TestPreserveMaskedSecrets(t *testing.T) {
 	}
 	if got["yookassa"].(map[string]any)["secret_key"] != "replacement" {
 		t.Fatal("explicit secret replacement was not saved")
+	}
+}
+
+func TestEntitlementTraffic(t *testing.T) {
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	activeUntil := now.Add(24 * time.Hour)
+	expiredAt := now.Add(-24 * time.Hour)
+	tests := []struct {
+		name    string
+		current int64
+		status  string
+		expires *time.Time
+		gb      int
+		mode    trafficMode
+		want    int64
+		update  bool
+	}{
+		{name: "days only keeps limited traffic", current: 100 * gigabyte, status: "ACTIVE", expires: &activeUntil, mode: trafficKeep, want: 100 * gigabyte, update: false},
+		{name: "active plan adds allowance", current: 100 * gigabyte, status: "ACTIVE", expires: &activeUntil, gb: 50, mode: trafficPlan, want: 150 * gigabyte, update: true},
+		{name: "expired plan replaces stale allowance", current: 100 * gigabyte, status: "ACTIVE", expires: &expiredAt, gb: 50, mode: trafficPlan, want: 50 * gigabyte, update: true},
+		{name: "active unlimited remains unlimited", current: 0, status: "ACTIVE", expires: &activeUntil, gb: 50, mode: trafficPlan, want: 0, update: true},
+		{name: "zero bonus does not enable unlimited", current: 100 * gigabyte, status: "ACTIVE", expires: &activeUntil, mode: trafficAdd, want: 100 * gigabyte, update: false},
+		{name: "explicit unlimited", current: 100 * gigabyte, status: "ACTIVE", expires: &activeUntil, mode: trafficUnlimited, want: 0, update: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, update := entitlementTraffic(test.current, test.status, test.expires, test.gb, test.mode, now)
+			if got != test.want || update != test.update {
+				t.Fatalf("got (%d, %t), want (%d, %t)", got, update, test.want, test.update)
+			}
+		})
 	}
 }

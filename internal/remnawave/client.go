@@ -118,17 +118,25 @@ func (c *Client) UserByTelegram(ctx context.Context, id int64) (map[string]any, 
 type Entitlement struct {
 	TelegramID        int64
 	Username          string
-	ExpireAt          time.Time
-	TrafficBytes      int64
-	DeviceLimit       int
-	InternalSquads    []string
-	ExternalSquadUUID string
+	Status            *string
+	ExpireAt          *time.Time
+	TrafficBytes      *int64
+	DeviceLimit       *int
+	InternalSquads    *[]string
+	ExternalSquadUUID *string
 }
 
 func (c *Client) CreateUser(ctx context.Context, e Entitlement) (map[string]any, error) {
-	body := map[string]any{"username": e.Username, "status": "ACTIVE", "expireAt": e.ExpireAt.Format(time.RFC3339Nano), "trafficLimitBytes": e.TrafficBytes, "trafficLimitStrategy": "NO_RESET", "telegramId": e.TelegramID, "hwidDeviceLimit": e.DeviceLimit, "activeInternalSquads": e.InternalSquads, "description": "Managed by TGS-bot", "tag": "TGS_BOT"}
-	if e.ExternalSquadUUID != "" {
-		body["externalSquadUuid"] = e.ExternalSquadUUID
+	body := map[string]any{"username": e.Username, "status": "ACTIVE", "trafficLimitStrategy": "NO_RESET", "telegramId": e.TelegramID, "description": "Managed by TGS-bot", "tag": "TGS_BOT"}
+	applyEntitlementBody(body, e)
+	if _, ok := body["expireAt"]; !ok {
+		body["expireAt"] = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	if _, ok := body["trafficLimitBytes"]; !ok {
+		body["trafficLimitBytes"] = int64(0)
+	}
+	if _, ok := body["hwidDeviceLimit"]; !ok {
+		body["hwidDeviceLimit"] = 1
 	}
 	data, err := c.request(ctx, http.MethodPost, "/api/users", nil, body)
 	if err != nil {
@@ -139,12 +147,8 @@ func (c *Client) CreateUser(ctx context.Context, e Entitlement) (map[string]any,
 }
 
 func (c *Client) UpdateUser(ctx context.Context, user map[string]any, e Entitlement) (map[string]any, error) {
-	body := map[string]any{"status": "ACTIVE", "expireAt": e.ExpireAt.Format(time.RFC3339Nano), "trafficLimitBytes": e.TrafficBytes, "hwidDeviceLimit": e.DeviceLimit, "activeInternalSquads": e.InternalSquads}
-	if e.ExternalSquadUUID != "" {
-		body["externalSquadUuid"] = e.ExternalSquadUUID
-	} else {
-		body["externalSquadUuid"] = nil
-	}
+	body := map[string]any{}
+	applyEntitlementBody(body, e)
 	if id, ok := numberInt64(user["id"]); ok {
 		body["id"] = id
 	} else {
@@ -156,6 +160,31 @@ func (c *Client) UpdateUser(ctx context.Context, user map[string]any, e Entitlem
 	}
 	out, _ := data.(map[string]any)
 	return out, nil
+}
+
+func applyEntitlementBody(body map[string]any, e Entitlement) {
+	if e.Status != nil {
+		body["status"] = *e.Status
+	}
+	if e.ExpireAt != nil {
+		body["expireAt"] = e.ExpireAt.Format(time.RFC3339Nano)
+	}
+	if e.TrafficBytes != nil {
+		body["trafficLimitBytes"] = *e.TrafficBytes
+	}
+	if e.DeviceLimit != nil {
+		body["hwidDeviceLimit"] = *e.DeviceLimit
+	}
+	if e.InternalSquads != nil {
+		body["activeInternalSquads"] = *e.InternalSquads
+	}
+	if e.ExternalSquadUUID != nil {
+		if *e.ExternalSquadUUID == "" {
+			body["externalSquadUuid"] = nil
+		} else {
+			body["externalSquadUuid"] = *e.ExternalSquadUUID
+		}
+	}
 }
 
 func (c *Client) UpdateStatus(ctx context.Context, user map[string]any, status string) (map[string]any, error) {
@@ -176,10 +205,17 @@ func (c *Client) UpdateStatus(ctx context.Context, user map[string]any, status s
 func (c *Client) Nodes(ctx context.Context) ([]map[string]any, error) {
 	return c.list(ctx, "/api/nodes", "nodes")
 }
-func (c *Client) Squads(ctx context.Context) ([]map[string]any, error) {
+func (c *Client) InternalSquads(ctx context.Context) ([]map[string]any, error) {
 	items, e := c.list(ctx, "/api/internal-squads", "internalSquads")
 	if e == nil && len(items) == 0 {
 		return c.list(ctx, "/api/internal-squads", "squads")
+	}
+	return items, e
+}
+func (c *Client) ExternalSquads(ctx context.Context) ([]map[string]any, error) {
+	items, e := c.list(ctx, "/api/external-squads", "externalSquads")
+	if e == nil && len(items) == 0 {
+		return c.list(ctx, "/api/external-squads", "squads")
 	}
 	return items, e
 }

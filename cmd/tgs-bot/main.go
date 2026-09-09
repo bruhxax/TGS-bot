@@ -43,6 +43,7 @@ func main() {
 		logger.Warn("telegram getMe", "error", e)
 	}
 	go bot.New(cfg, st, api.Telegram, logger).Run(ctx)
+	go api.RunMaintenance(ctx)
 	httpServer := &http.Server{Addr: cfg.ListenAddr, Handler: api.Handler(webFS), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 20 * time.Second, WriteTimeout: 70 * time.Second, IdleTimeout: 90 * time.Second}
 	go func() {
 		logger.Info("http server started", "addr", cfg.ListenAddr)

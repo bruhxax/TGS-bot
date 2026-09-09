@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS payments (
  amount_kopecks BIGINT NOT NULL, promo_code VARCHAR(64) NOT NULL DEFAULT '', snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), paid_at TIMESTAMPTZ
 );
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS entitlement JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS payments_user_idx ON payments(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS payments_provider_idx ON payments(provider_payment_id);
 CREATE TABLE IF NOT EXISTS promo_codes (
@@ -94,10 +96,23 @@ CREATE TABLE IF NOT EXISTS diagnostics (
  message TEXT NOT NULL, details JSONB NOT NULL DEFAULT '{}'::jsonb, resolved BOOLEAN NOT NULL DEFAULT FALSE,
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS admin_audit (
+ id UUID PRIMARY KEY DEFAULT gen_random_uuid(), admin_user_id BIGINT NOT NULL REFERENCES users(id),
+ target_user_id BIGINT REFERENCES users(id), action VARCHAR(64) NOT NULL, reason TEXT NOT NULL DEFAULT '',
+ details JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 CREATE TABLE IF NOT EXISTS broadcasts (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), admin_user_id BIGINT NOT NULL REFERENCES users(id), text TEXT NOT NULL,
  buttons JSONB NOT NULL DEFAULT '[]'::jsonb, status VARCHAR(20) NOT NULL DEFAULT 'draft', sent_count INT NOT NULL DEFAULT 0,
  failed_count INT NOT NULL DEFAULT 0, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE broadcasts ADD COLUMN IF NOT EXISTS source_chat_id BIGINT NOT NULL DEFAULT 0;
+ALTER TABLE broadcasts ADD COLUMN IF NOT EXISTS source_message_id INT NOT NULL DEFAULT 0;
+ALTER TABLE broadcasts ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+CREATE TABLE IF NOT EXISTS broadcast_deliveries (
+ broadcast_id UUID NOT NULL REFERENCES broadcasts(id) ON DELETE CASCADE, chat_id BIGINT NOT NULL,
+ status VARCHAR(16) NOT NULL DEFAULT 'pending', attempts INT NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
+ updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), PRIMARY KEY(broadcast_id,chat_id)
 );`
 	_, err := s.DB.ExecContext(ctx, schema)
 	return err
@@ -110,7 +125,7 @@ var DefaultSettings = map[string]map[string]any{
 	"integrations": {"remnawave": map[string]any{"enabled": false, "url": "", "token": "", "webhook_secret": ""}, "yookassa": map[string]any{"enabled": false, "shop_id": "", "secret_key": "", "email": ""}, "cryptobot": map[string]any{"enabled": false, "token": "", "testnet": false}, "notifications": map[string]any{"enabled": false, "bot_token": "", "chat_id": ""}},
 	"theme":        {"template": "telegram", "accent": "#2aabee", "background": "#111315", "surface": "#1c1f22", "surface_alt": "#24282d", "text": "#ffffff", "muted": "#8f969e"},
 	"system":       {"referral_days": float64(7), "referral_traffic_gb": float64(10), "reward_after_payment": true},
-	"emergency":    {"enabled": false},
+	"emergency":    {"enabled": false, "message": "Сервис временно недоступен. Мы уже работаем над восстановлением."},
 	"language":     {"default": "ru"},
 	"more_order":   {"items": []any{"servers", "devices", "payments", "referral"}},
 }
@@ -120,6 +135,10 @@ var ThemeTemplates = map[string]map[string]any{
 	"graphite": {"accent": "#ffffff", "background": "#0c0c0d", "surface": "#19191b", "surface_alt": "#232326"},
 	"emerald":  {"accent": "#2fbf8f", "background": "#101413", "surface": "#1a211f", "surface_alt": "#222c29"},
 	"sand":     {"accent": "#e7b55e", "background": "#14120f", "surface": "#211e19", "surface_alt": "#2b271f"},
+	"ocean":    {"accent": "#5aa9e6", "background": "#0d1217", "surface": "#182028", "surface_alt": "#222d36"},
+	"violet":   {"accent": "#9b8cff", "background": "#111016", "surface": "#1d1a25", "surface_alt": "#282333"},
+	"ruby":     {"accent": "#e06b78", "background": "#151012", "surface": "#22191c", "surface_alt": "#2e2226"},
+	"steel":    {"accent": "#8ea2b5", "background": "#101214", "surface": "#1a1e22", "surface_alt": "#242a30"},
 }
 
 func (s *Store) seed(ctx context.Context) error {
@@ -239,6 +258,18 @@ func (s *Store) SetTrialUsed(ctx context.Context, id int64) error {
 	_, err := s.DB.ExecContext(ctx, `UPDATE users SET trial_used=TRUE WHERE id=$1`, id)
 	return err
 }
+func (s *Store) ReserveTrial(ctx context.Context, id int64) (bool, error) {
+	result, err := s.DB.ExecContext(ctx, `UPDATE users SET trial_used=TRUE WHERE id=$1 AND trial_used=FALSE`)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count == 1, err
+}
+func (s *Store) ReleaseTrial(ctx context.Context, id int64) error {
+	_, err := s.DB.ExecContext(ctx, `UPDATE users SET trial_used=FALSE WHERE id=$1 AND trial_used=TRUE`)
+	return err
+}
 func (s *Store) SetReferralRewarded(ctx context.Context, id int64) error {
 	_, err := s.DB.ExecContext(ctx, `UPDATE users SET referral_rewarded=TRUE WHERE id=$1`, id)
 	return err
@@ -300,15 +331,16 @@ func (s *Store) DeleteTariff(ctx context.Context, id string) error {
 
 func scanPayment(scanner interface{ Scan(...any) error }) (Payment, error) {
 	var p Payment
-	var raw []byte
-	err := scanner.Scan(&p.ID, &p.UserID, &p.TariffID, &p.Provider, &p.ProviderPaymentID, &p.Status, &p.AmountKopecks, &p.PromoCode, &raw, &p.CreatedAt, &p.PaidAt)
+	var snapshotRaw, entitlementRaw []byte
+	err := scanner.Scan(&p.ID, &p.UserID, &p.TariffID, &p.Provider, &p.ProviderPaymentID, &p.Status, &p.AmountKopecks, &p.PromoCode, &snapshotRaw, &entitlementRaw, &p.CreatedAt, &p.PaidAt)
 	if err == nil {
-		_ = json.Unmarshal(raw, &p.Snapshot)
+		_ = json.Unmarshal(snapshotRaw, &p.Snapshot)
+		_ = json.Unmarshal(entitlementRaw, &p.Entitlement)
 	}
 	return p, err
 }
 
-const paymentColumns = `id::text,user_id,COALESCE(tariff_id::text,''),provider,provider_payment_id,status,amount_kopecks,promo_code,snapshot,created_at,paid_at`
+const paymentColumns = `id::text,user_id,COALESCE(tariff_id::text,''),provider,provider_payment_id,status,amount_kopecks,promo_code,snapshot,entitlement,created_at,paid_at`
 
 func (s *Store) CreatePayment(ctx context.Context, p Payment) (Payment, error) {
 	raw, _ := json.Marshal(p.Snapshot)
@@ -353,7 +385,7 @@ func (s *Store) MarkPaymentPaid(ctx context.Context, id string) (bool, error) {
 	return n == 1, nil
 }
 func (s *Store) ClaimPayment(ctx context.Context, id string) (bool, error) {
-	r, e := s.DB.ExecContext(ctx, `UPDATE payments SET status='processing' WHERE id=$1 AND status='pending'`, id)
+	r, e := s.DB.ExecContext(ctx, `UPDATE payments SET status='processing',processing_started_at=NOW() WHERE id=$1 AND (status='pending' OR (status='processing' AND (processing_started_at IS NULL OR processing_started_at < NOW()-INTERVAL '10 minutes')))`, id)
 	if e != nil {
 		return false, e
 	}
@@ -361,12 +393,49 @@ func (s *Store) ClaimPayment(ctx context.Context, id string) (bool, error) {
 	return n == 1, nil
 }
 func (s *Store) CompleteClaimedPayment(ctx context.Context, id string) error {
-	_, e := s.DB.ExecContext(ctx, `UPDATE payments SET status='succeeded',paid_at=NOW() WHERE id=$1 AND status='processing'`, id)
+	_, e := s.DB.ExecContext(ctx, `UPDATE payments SET status='succeeded',paid_at=NOW(),processing_started_at=NULL WHERE id=$1 AND status='processing'`, id)
 	return e
 }
 func (s *Store) ReleasePaymentClaim(ctx context.Context, id string) error {
-	_, e := s.DB.ExecContext(ctx, `UPDATE payments SET status='pending' WHERE id=$1 AND status='processing'`, id)
+	_, e := s.DB.ExecContext(ctx, `UPDATE payments SET status='pending',processing_started_at=NULL WHERE id=$1 AND status='processing'`, id)
 	return e
+}
+func (s *Store) SavePaymentEntitlement(ctx context.Context, id string, value map[string]any) (Payment, error) {
+	raw, _ := json.Marshal(value)
+	_, err := s.DB.ExecContext(ctx, `UPDATE payments SET entitlement=$2 WHERE id=$1 AND entitlement='{}'::jsonb`, id, raw)
+	if err != nil {
+		return Payment{}, err
+	}
+	return s.Payment(ctx, id)
+}
+func (s *Store) StaleProcessingPayments(ctx context.Context) ([]Payment, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+paymentColumns+` FROM payments WHERE (status='processing' AND (processing_started_at IS NULL OR processing_started_at < NOW()-INTERVAL '10 minutes')) OR (status='pending' AND entitlement<>'{}'::jsonb) ORDER BY created_at LIMIT 100`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Payment{}
+	for rows.Next() {
+		payment, scanErr := scanPayment(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, payment)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) WithUserLock(ctx context.Context, userID int64, fn func() error) error {
+	conn, err := s.DB.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if _, err = conn.ExecContext(ctx, `SELECT pg_advisory_lock($1)`, userID); err != nil {
+		return err
+	}
+	defer func() { _, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, userID) }()
+	return fn()
 }
 
 func (s *Store) PromoByCode(ctx context.Context, code string) (Promo, error) {
@@ -534,6 +603,12 @@ func (s *Store) ResolveDiagnostic(ctx context.Context, id string) error {
 	return e
 }
 
+func (s *Store) AdminAudit(ctx context.Context, adminID, targetID int64, action, reason string, details map[string]any) error {
+	raw, _ := json.Marshal(details)
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO admin_audit(admin_user_id,target_user_id,action,reason,details) VALUES($1,$2,$3,$4,$5)`, adminID, targetID, action, reason, raw)
+	return err
+}
+
 func (s *Store) Users(ctx context.Context, q string) ([]User, error) {
 	sqlq := `SELECT ` + userColumns + ` FROM users`
 	args := []any{}
@@ -609,25 +684,117 @@ func (s *Store) AllTelegramIDs(ctx context.Context) ([]int64, error) {
 	return out, rows.Err()
 }
 func (s *Store) CreateBroadcast(ctx context.Context, adminID int64, message string, buttons []map[string]string) (Broadcast, error) {
-	var b Broadcast
 	raw, _ := json.Marshal(buttons)
-	e := s.DB.QueryRowContext(ctx, `INSERT INTO broadcasts(admin_user_id,text,buttons)VALUES($1,$2,$3) RETURNING id::text,admin_user_id,text,buttons,status,sent_count,failed_count,created_at`, adminID, message, raw).Scan(&b.ID, &b.AdminUserID, &b.Text, &raw, &b.Status, &b.SentCount, &b.FailedCount, &b.CreatedAt)
-	if e == nil {
-		_ = json.Unmarshal(raw, &b.Buttons)
-	}
-	return b, e
+	return scanBroadcast(s.DB.QueryRowContext(ctx, `INSERT INTO broadcasts(admin_user_id,text,buttons,status)VALUES($1,$2,$3,'draft') RETURNING id::text,admin_user_id,text,source_chat_id,source_message_id,buttons,status,sent_count,failed_count,created_at,updated_at`, adminID, message, raw))
 }
-func (s *Store) Broadcast(ctx context.Context, id string) (Broadcast, error) {
+
+func scanBroadcast(row interface{ Scan(...any) error }) (Broadcast, error) {
 	var b Broadcast
 	var raw []byte
-	e := s.DB.QueryRowContext(ctx, `SELECT id::text,admin_user_id,text,buttons,status,sent_count,failed_count,created_at FROM broadcasts WHERE id=$1`, id).Scan(&b.ID, &b.AdminUserID, &b.Text, &raw, &b.Status, &b.SentCount, &b.FailedCount, &b.CreatedAt)
-	if e == nil {
+	err := row.Scan(&b.ID, &b.AdminUserID, &b.Text, &b.SourceChatID, &b.SourceMessageID, &raw, &b.Status, &b.SentCount, &b.FailedCount, &b.CreatedAt, &b.UpdatedAt)
+	if err == nil {
 		_ = json.Unmarshal(raw, &b.Buttons)
 	}
-	return b, e
+	return b, err
+}
+
+func (s *Store) BeginBroadcastDraft(ctx context.Context, adminID int64) (Broadcast, error) {
+	if current, err := s.LatestBroadcast(ctx, adminID); err == nil && current.Status != "completed" && current.Status != "sending" && current.Status != "cancelled" {
+		return scanBroadcast(s.DB.QueryRowContext(ctx, `UPDATE broadcasts SET text='',source_chat_id=0,source_message_id=0,buttons='[]'::jsonb,status='awaiting',sent_count=0,failed_count=0,updated_at=NOW() WHERE id=$1 RETURNING id::text,admin_user_id,text,source_chat_id,source_message_id,buttons,status,sent_count,failed_count,created_at,updated_at`, current.ID))
+	}
+	return scanBroadcast(s.DB.QueryRowContext(ctx, `INSERT INTO broadcasts(admin_user_id,text,status)VALUES($1,'','awaiting') RETURNING id::text,admin_user_id,text,source_chat_id,source_message_id,buttons,status,sent_count,failed_count,created_at,updated_at`, adminID))
+}
+
+func (s *Store) AwaitingBroadcast(ctx context.Context, adminID int64) (Broadcast, error) {
+	return scanBroadcast(s.DB.QueryRowContext(ctx, `SELECT id::text,admin_user_id,text,source_chat_id,source_message_id,buttons,status,sent_count,failed_count,created_at,updated_at FROM broadcasts WHERE admin_user_id=$1 AND status='awaiting' ORDER BY updated_at DESC LIMIT 1`, adminID))
+}
+
+func (s *Store) LatestBroadcast(ctx context.Context, adminID int64) (Broadcast, error) {
+	return scanBroadcast(s.DB.QueryRowContext(ctx, `SELECT id::text,admin_user_id,text,source_chat_id,source_message_id,buttons,status,sent_count,failed_count,created_at,updated_at FROM broadcasts WHERE admin_user_id=$1 ORDER BY updated_at DESC LIMIT 1`, adminID))
+}
+
+func (s *Store) CaptureBroadcast(ctx context.Context, id string, chatID int64, messageID int, summary string) (Broadcast, error) {
+	return scanBroadcast(s.DB.QueryRowContext(ctx, `UPDATE broadcasts SET text=$2,source_chat_id=$3,source_message_id=$4,status='preview',updated_at=NOW() WHERE id=$1 AND status='awaiting' RETURNING id::text,admin_user_id,text,source_chat_id,source_message_id,buttons,status,sent_count,failed_count,created_at,updated_at`, id, summary, chatID, messageID))
+
+}
+
+func (s *Store) SetBroadcastStatus(ctx context.Context, id, status string) error {
+	_, err := s.DB.ExecContext(ctx, `UPDATE broadcasts SET status=$2,updated_at=NOW() WHERE id=$1`, id, status)
+	return err
+}
+
+func (s *Store) SaveBroadcastButtons(ctx context.Context, id string, buttons []map[string]string) (Broadcast, error) {
+	raw, _ := json.Marshal(buttons)
+	return scanBroadcast(s.DB.QueryRowContext(ctx, `UPDATE broadcasts SET buttons=$2,updated_at=NOW() WHERE id=$1 AND status IN ('preview','confirmed') RETURNING id::text,admin_user_id,text,source_chat_id,source_message_id,buttons,status,sent_count,failed_count,created_at,updated_at`, id, raw))
+}
+
+func (s *Store) ClaimBroadcast(ctx context.Context, id string) (bool, error) {
+	result, err := s.DB.ExecContext(ctx, `UPDATE broadcasts SET status='sending',updated_at=NOW() WHERE id=$1 AND status='confirmed'`, id)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count == 1, err
+}
+func (s *Store) SendingBroadcasts(ctx context.Context) ([]Broadcast, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT id::text,admin_user_id,text,source_chat_id,source_message_id,buttons,status,sent_count,failed_count,created_at,updated_at FROM broadcasts WHERE status='sending' ORDER BY updated_at LIMIT 20`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Broadcast{}
+	for rows.Next() {
+		broadcast, scanErr := scanBroadcast(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, broadcast)
+	}
+	return out, rows.Err()
+}
+func (s *Store) PrepareBroadcastDeliveries(ctx context.Context, id string) error {
+	_, err := s.DB.ExecContext(ctx, `INSERT INTO broadcast_deliveries(broadcast_id,chat_id) SELECT $1,telegram_id FROM users WHERE is_blocked=FALSE ON CONFLICT(broadcast_id,chat_id) DO NOTHING`, id)
+	return err
+}
+func (s *Store) ClaimBroadcastDeliveries(ctx context.Context, id string) ([]BroadcastDelivery, error) {
+	rows, err := s.DB.QueryContext(ctx, `WITH picked AS (
+ SELECT broadcast_id,chat_id FROM broadcast_deliveries
+ WHERE broadcast_id=$1 AND status<>'sent' AND attempts<3 AND (status<>'processing' OR updated_at<NOW()-INTERVAL '5 minutes')
+ ORDER BY chat_id LIMIT 100 FOR UPDATE SKIP LOCKED
+) UPDATE broadcast_deliveries d SET status='processing',attempts=d.attempts+1,updated_at=NOW()
+FROM picked p WHERE d.broadcast_id=p.broadcast_id AND d.chat_id=p.chat_id RETURNING d.chat_id,d.attempts`, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []BroadcastDelivery{}
+	for rows.Next() {
+		var delivery BroadcastDelivery
+		if err = rows.Scan(&delivery.ChatID, &delivery.Attempts); err != nil {
+			return nil, err
+		}
+		out = append(out, delivery)
+	}
+	return out, rows.Err()
+}
+func (s *Store) FinishBroadcastDelivery(ctx context.Context, id string, chatID int64, delivered bool, lastError string) error {
+	status := "failed"
+	if delivered {
+		status = "sent"
+	}
+	_, err := s.DB.ExecContext(ctx, `UPDATE broadcast_deliveries SET status=$3,last_error=$4,updated_at=NOW() WHERE broadcast_id=$1 AND chat_id=$2`, id, chatID, status, lastError)
+	return err
+}
+func (s *Store) BroadcastDeliveryCounts(ctx context.Context, id string) (int, int, int, error) {
+	var sent, failed, remaining int
+	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FILTER(WHERE status='sent'),COUNT(*) FILTER(WHERE status='failed' AND attempts>=3),COUNT(*) FILTER(WHERE status='processing' OR (status<>'sent' AND attempts<3)) FROM broadcast_deliveries WHERE broadcast_id=$1`, id).Scan(&sent, &failed, &remaining)
+	return sent, failed, remaining, err
+}
+func (s *Store) Broadcast(ctx context.Context, id string) (Broadcast, error) {
+	return scanBroadcast(s.DB.QueryRowContext(ctx, `SELECT id::text,admin_user_id,text,source_chat_id,source_message_id,buttons,status,sent_count,failed_count,created_at,updated_at FROM broadcasts WHERE id=$1`, id))
 }
 func (s *Store) FinishBroadcast(ctx context.Context, id, status string, sent, failed int) error {
-	_, e := s.DB.ExecContext(ctx, `UPDATE broadcasts SET status=$2,sent_count=$3,failed_count=$4 WHERE id=$1`, id, status, sent, failed)
+	_, e := s.DB.ExecContext(ctx, `UPDATE broadcasts SET status=$2,sent_count=$3,failed_count=$4,updated_at=NOW() WHERE id=$1`, id, status, sent, failed)
 	return e
 }
 
