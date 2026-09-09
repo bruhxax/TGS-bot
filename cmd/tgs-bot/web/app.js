@@ -95,15 +95,21 @@ function navigationItems() {
   return items;
 }
 
+function navigationRootPage() {
+  if (state.page.startsWith('ticket:')) return 'support';
+  if (state.page.startsWith('more:')) return 'more';
+  if (state.page.startsWith('admin:')) return 'admin';
+  return state.page;
+}
+
 function nav() {
   const items = navigationItems();
-  const rootPage = state.page.split(':')[0];
+  const rootPage = navigationRootPage();
   const activeIndex = Math.max(0, items.findIndex(([page]) => page === rootPage));
   return `<nav class="bottom-nav" data-nav-keys="${items.map(([page]) => page).join(',')}" style="--nav-count:${items.length};--indicator-x:${activeIndex * 100}%;--nav-width:${items.length * 48 + 16}px" aria-label="Основная навигация"><span class="nav-indicator" aria-hidden="true"></span>${items.map(([page,ico,label]) => `<button class="nav-button ${rootPage === page ? 'active' : ''}" data-nav="${page}" aria-label="${esc(label)}" title="${esc(label)}" ${rootPage === page ? 'aria-current="page"' : ''}>${icon(ico)}</button>`).join('')}</nav>`;
 }
 
 let renderedPage = '';
-let activeViewTransition = null;
 function ensureShell() {
   if ($('.app-shell', $('#app'))) return;
   $('#app').innerHTML = `<div class="app-shell"><main class="page" id="page-view"></main><div id="nav-slot">${nav()}</div></div>`;
@@ -118,7 +124,7 @@ function updateNavigation() {
     slot.innerHTML = nav();
     navigation = $('.bottom-nav', slot);
   }
-  const rootPage = state.page.split(':')[0];
+  const rootPage = navigationRootPage();
   const activeIndex = Math.max(0, items.findIndex(([page]) => page === rootPage));
   navigation.style.setProperty('--indicator-x', `${activeIndex * 100}%`);
   $$('.nav-button', navigation).forEach(button => {
@@ -146,26 +152,17 @@ function render() {
   ensureShell();
   updateNavigation();
   const view = $('#page-view');
-  const rootPage = state.page.split(':')[0];
+  const viewPage = state.page.split(':')[0];
   const commit = () => {
-    view.className = `page page-${rootPage}`;
+    view.className = `page page-${viewPage}`;
     view.innerHTML = body;
   };
   const pageChanged = Boolean(renderedPage && renderedPage !== state.page);
-  if (pageChanged && document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-    activeViewTransition?.skipTransition?.();
-    try {
-      const transition = document.startViewTransition(commit);
-      activeViewTransition = transition;
-      transition.finished.finally(() => { if (activeViewTransition === transition) activeViewTransition = null; });
-    } catch (_) {
-      commit();
-    }
-  } else {
-    commit();
-    if (pageChanged && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      view.animate([{opacity:.82, transform:'translateY(6px)'}, {opacity:1, transform:'translateY(0)'}], {duration:320, easing:'cubic-bezier(.32,.72,0,1)'});
-    }
+  commit();
+  if (pageChanged) view.scrollTop = 0;
+  if (pageChanged && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    view.getAnimations().forEach(animation => animation.cancel());
+    view.animate([{opacity:.9, transform:'translateY(3px)'}, {opacity:1, transform:'translateY(0)'}], {duration:140, easing:'cubic-bezier(.32,.72,0,1)'});
   }
   renderedPage = state.page;
   syncBackButton();
@@ -340,7 +337,7 @@ function closeModal(immediate = false) {
     if (root.firstElementChild === backdrop) root.innerHTML = '';
     modalTrigger?.focus?.();
     modalCloseTimer = null;
-  }, 300);
+  }, 170);
 }
 
 function buyModal(id) {
