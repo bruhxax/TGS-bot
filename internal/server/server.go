@@ -172,7 +172,7 @@ func (s *Server) authTelegram(w http.ResponseWriter, r *http.Request) {
 }
 
 func publicUser(u store.User) map[string]any {
-	return map[string]any{"id": u.ID, "telegram_id": u.TelegramID, "username": u.Username, "first_name": u.FirstName, "photo_url": u.PhotoURL, "is_admin": u.IsAdmin, "trial_used": u.TrialUsed, "referral_code": u.ReferralCode, "subscription": map[string]any{"status": u.SubscriptionStatus, "expires_at": u.ExpiresAt, "traffic_limit_bytes": u.TrafficLimitBytes, "traffic_used_bytes": u.TrafficUsedBytes, "device_limit": u.DeviceLimit, "subscription_url": u.SubscriptionURL}}
+	return map[string]any{"id": u.ID, "telegram_id": u.TelegramID, "username": u.Username, "first_name": u.FirstName, "photo_url": u.PhotoURL, "remnawave_username": u.RemnawaveUsername, "is_admin": u.IsAdmin, "trial_used": u.TrialUsed, "referral_code": u.ReferralCode, "subscription": map[string]any{"status": u.SubscriptionStatus, "expires_at": u.ExpiresAt, "traffic_limit_bytes": u.TrafficLimitBytes, "traffic_used_bytes": u.TrafficUsedBytes, "device_limit": u.DeviceLimit, "subscription_url": u.SubscriptionURL}}
 }
 func adminUserDTO(u store.User) map[string]any {
 	out := publicUser(u)

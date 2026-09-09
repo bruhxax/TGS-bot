@@ -17,6 +17,7 @@ type User struct {
 	ReferredByID       *int64     `json:"referred_by_id"`
 	RemnawaveUserID    *int64     `json:"remnawave_user_id"`
 	RemnawaveUserUUID  string     `json:"remnawave_user_uuid"`
+	RemnawaveUsername  string     `json:"remnawave_username"`
 	SubscriptionURL    string     `json:"subscription_url"`
 	SubscriptionStatus string     `json:"subscription_status"`
 	ExpiresAt          *time.Time `json:"expires_at"`

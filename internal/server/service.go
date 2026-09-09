@@ -117,6 +117,9 @@ func syncRemote(u *store.User, remote map[string]any) {
 		u.RemnawaveUserID = &id
 	}
 	u.RemnawaveUserUUID = text(remote["uuid"])
+	if v := text(remote["username"]); v != "" {
+		u.RemnawaveUsername = v
+	}
 	if v := text(remote["subscriptionUrl"]); v != "" {
 		u.SubscriptionURL = v
 	}

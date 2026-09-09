@@ -48,13 +48,14 @@ CREATE TABLE IF NOT EXISTS users (
  first_name VARCHAR(128) NOT NULL DEFAULT 'Пользователь', photo_url TEXT NOT NULL DEFAULT '', language VARCHAR(8) NOT NULL DEFAULT 'ru',
  is_admin BOOLEAN NOT NULL DEFAULT FALSE, is_blocked BOOLEAN NOT NULL DEFAULT FALSE, trial_used BOOLEAN NOT NULL DEFAULT FALSE,
  referral_rewarded BOOLEAN NOT NULL DEFAULT FALSE, referral_code VARCHAR(24) UNIQUE NOT NULL, referred_by_id BIGINT REFERENCES users(id),
- remnawave_user_id BIGINT, remnawave_user_uuid VARCHAR(64) NOT NULL DEFAULT '', subscription_url TEXT NOT NULL DEFAULT '',
+ remnawave_user_id BIGINT, remnawave_user_uuid VARCHAR(64) NOT NULL DEFAULT '', remnawave_username VARCHAR(64) NOT NULL DEFAULT '', subscription_url TEXT NOT NULL DEFAULT '',
  subscription_status VARCHAR(20) NOT NULL DEFAULT 'INACTIVE', expires_at TIMESTAMPTZ, traffic_limit_bytes BIGINT NOT NULL DEFAULT 0,
  traffic_used_bytes BIGINT NOT NULL DEFAULT 0, device_limit INT NOT NULL DEFAULT 1,
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), last_seen_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS users_telegram_id_idx ON users(telegram_id);
 CREATE INDEX IF NOT EXISTS users_referral_code_idx ON users(referral_code);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS remnawave_username VARCHAR(64) NOT NULL DEFAULT '';
 CREATE TABLE IF NOT EXISTS runtime_settings (
  key VARCHAR(64) PRIMARY KEY, value JSONB NOT NULL DEFAULT '{}'::jsonb, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -190,11 +191,11 @@ func (s *Store) SaveSetting(ctx context.Context, key string, update map[string]a
 
 func scanUser(scanner interface{ Scan(...any) error }) (User, error) {
 	var u User
-	err := scanner.Scan(&u.ID, &u.TelegramID, &u.Username, &u.FirstName, &u.PhotoURL, &u.Language, &u.IsAdmin, &u.IsBlocked, &u.TrialUsed, &u.ReferralRewarded, &u.ReferralCode, &u.ReferredByID, &u.RemnawaveUserID, &u.RemnawaveUserUUID, &u.SubscriptionURL, &u.SubscriptionStatus, &u.ExpiresAt, &u.TrafficLimitBytes, &u.TrafficUsedBytes, &u.DeviceLimit, &u.CreatedAt, &u.LastSeenAt)
+	err := scanner.Scan(&u.ID, &u.TelegramID, &u.Username, &u.FirstName, &u.PhotoURL, &u.Language, &u.IsAdmin, &u.IsBlocked, &u.TrialUsed, &u.ReferralRewarded, &u.ReferralCode, &u.ReferredByID, &u.RemnawaveUserID, &u.RemnawaveUserUUID, &u.RemnawaveUsername, &u.SubscriptionURL, &u.SubscriptionStatus, &u.ExpiresAt, &u.TrafficLimitBytes, &u.TrafficUsedBytes, &u.DeviceLimit, &u.CreatedAt, &u.LastSeenAt)
 	return u, err
 }
 
-const userColumns = `id,telegram_id,username,first_name,photo_url,language,is_admin,is_blocked,trial_used,referral_rewarded,referral_code,referred_by_id,remnawave_user_id,remnawave_user_uuid,subscription_url,subscription_status,expires_at,traffic_limit_bytes,traffic_used_bytes,device_limit,created_at,last_seen_at`
+const userColumns = `id,telegram_id,username,first_name,photo_url,language,is_admin,is_blocked,trial_used,referral_rewarded,referral_code,referred_by_id,remnawave_user_id,remnawave_user_uuid,remnawave_username,subscription_url,subscription_status,expires_at,traffic_limit_bytes,traffic_used_bytes,device_limit,created_at,last_seen_at`
 
 func (s *Store) UserByTelegram(ctx context.Context, id int64) (User, error) {
 	return scanUser(s.DB.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE telegram_id=$1`, id))
@@ -230,7 +231,7 @@ func (s *Store) UpsertTelegramUser(ctx context.Context, t TelegramUser, admins m
 }
 
 func (s *Store) UpdateSubscription(ctx context.Context, u User) error {
-	_, err := s.DB.ExecContext(ctx, `UPDATE users SET remnawave_user_id=$2,remnawave_user_uuid=$3,subscription_url=$4,subscription_status=$5,expires_at=$6,traffic_limit_bytes=$7,traffic_used_bytes=$8,device_limit=$9 WHERE id=$1`, u.ID, u.RemnawaveUserID, u.RemnawaveUserUUID, u.SubscriptionURL, u.SubscriptionStatus, u.ExpiresAt, u.TrafficLimitBytes, u.TrafficUsedBytes, u.DeviceLimit)
+	_, err := s.DB.ExecContext(ctx, `UPDATE users SET remnawave_user_id=$2,remnawave_user_uuid=$3,remnawave_username=$4,subscription_url=$5,subscription_status=$6,expires_at=$7,traffic_limit_bytes=$8,traffic_used_bytes=$9,device_limit=$10 WHERE id=$1`, u.ID, u.RemnawaveUserID, u.RemnawaveUserUUID, u.RemnawaveUsername, u.SubscriptionURL, u.SubscriptionStatus, u.ExpiresAt, u.TrafficLimitBytes, u.TrafficUsedBytes, u.DeviceLimit)
 	return err
 }
 
