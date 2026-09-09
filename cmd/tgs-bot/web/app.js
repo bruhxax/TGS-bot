@@ -1,7 +1,7 @@
 const tg = window.Telegram?.WebApp;
 tg?.ready();
 tg?.expand();
-tg?.enableClosingConfirmation?.();
+tg?.disableClosingConfirmation?.();
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
