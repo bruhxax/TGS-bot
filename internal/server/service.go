@@ -146,6 +146,15 @@ func mapID(v any) (int64, bool) {
 	return 0, false
 }
 
+func remoteTrafficValue(remote map[string]any, key string) any {
+	if traffic, ok := remote["userTraffic"].(map[string]any); ok {
+		if value, exists := traffic[key]; exists {
+			return value
+		}
+	}
+	return remote[key]
+}
+
 func (s *Server) record(ctx context.Context, source, message string, details map[string]any) {
 	s.Logger.Warn(message, "source", source)
 	if err := s.Store.Diagnostic(ctx, source, message, details); err != nil {
@@ -172,14 +181,18 @@ func syncRemote(u *store.User, remote map[string]any) {
 			u.ExpiresAt = &t
 		}
 	}
-	if n, ok := mapID(remote["usedTrafficBytes"]); ok {
+	if n, ok := mapID(remoteTrafficValue(remote, "usedTrafficBytes")); ok {
 		u.TrafficUsedBytes = n
 	}
 	if n, ok := mapID(remote["trafficLimitBytes"]); ok {
 		u.TrafficLimitBytes = n
 	}
-	if n, ok := mapID(remote["hwidDeviceLimit"]); ok {
-		u.DeviceLimit = int(n)
+	if value, exists := remote["hwidDeviceLimit"]; exists {
+		if value == nil {
+			u.DeviceLimit = 0
+		} else if n, ok := mapID(value); ok {
+			u.DeviceLimit = int(n)
+		}
 	}
 }
 

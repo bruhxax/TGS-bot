@@ -19,7 +19,8 @@
   font-synthesis: none;
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; scrollbar-width: none; -ms-overflow-style: none; }
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }
 html, body, #app { width: 100%; height: 100%; }
 html { background: var(--bg); }
 body { margin: 0; min-width: 300px; min-height: 100dvh; overflow: hidden; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
@@ -40,7 +41,8 @@ a { color: inherit; }
 .locked-screen p { max-width: 300px; margin: 0; line-height: 1.45; }
 
 .app-shell { width: min(100%, 680px); height: 100dvh; min-height: 0; margin: 0 auto; padding: max(9px, env(safe-area-inset-top)) 10px calc(var(--nav-height) + 17px + env(safe-area-inset-bottom)); overflow: hidden; }
-.page { height: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: thin; -webkit-overflow-scrolling: touch; }
+.page { height: 100%; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
+.icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; pointer-events: none; }
 
 .detail-head { min-height: 40px; display: grid; grid-template-columns: 36px minmax(0,1fr) 36px; align-items: center; margin-bottom: 10px; }
 .detail-head h2 { grid-column: 2; margin: 0; overflow: hidden; font-size: 17px; line-height: 1.2; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
@@ -130,7 +132,7 @@ a { color: inherit; }
 .page-ticket { overflow: hidden; }
 .ticket-layout { height: 100%; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden; }
 .ticket-context { display: flex; justify-content: center; margin: -5px 0 9px; }
-.chat { min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 3px 2px 10px; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.chat { min-height: 0; display: flex; flex-direction: column; gap: 8px; padding: 3px 2px 10px; overflow-y: auto; overscroll-behavior: contain; }
 .bubble { align-self: flex-start; max-width: min(84%, 440px); padding: 8px 10px; border-radius: 12px 12px 12px 4px; background: var(--surface-alt); line-height: 1.35; overflow-wrap: anywhere; animation: message-in 180ms var(--ease-ios) both; }
 .bubble.mine { align-self: flex-end; border-radius: 12px 12px 4px 12px; background: var(--accent); color: var(--accent-text); }
 .bubble strong { display: block; margin-bottom: 2px; font-size: 10px; opacity: .7; }

@@ -147,7 +147,11 @@ func (s *Server) adminSaveSetting(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 500, "Не удалось сохранить настройки")
 		return
 	}
-	writeJSON(w, 200, map[string]any{"key": key, "value": mask(value)})
+	out := map[string]any{"key": key, "value": mask(value)}
+	if key == "theme" {
+		out["theme_templates"] = store.ThemeTemplates
+	}
+	writeJSON(w, 200, out)
 }
 
 func (s *Server) adminSquads(w http.ResponseWriter, r *http.Request) {

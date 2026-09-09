@@ -14,10 +14,28 @@ const i18n = {
 };
 
 const params = new URLSearchParams(location.search);
-const state = { token: sessionStorage.getItem('tgs_session') || '', data: null, page: params.get('page') || 'home', preview: isPreview, cache: {}, selectedTariffID: '' };
+const state = { token: sessionStorage.getItem('tgs_session') || '', data: null, page: params.get('page') || 'home', preview: isPreview, cache: {}, selectedTariffID: '', scrollPositions: {} };
 const tr = key => i18n[state.data?.language?.default || 'ru']?.[key] || i18n.ru[key] || key;
 
-const icon = name => `<svg class="icon${name === 'loader' ? ' icon-loader' : ''}" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/icons.svg#icon-${name}"></use></svg>`;
+let iconSpritePrefix = '/assets/icons.svg?v=20260910-v100';
+const icon = name => `<svg class="icon${name === 'loader' ? ' icon-loader' : ''}" viewBox="0 0 24 24" aria-hidden="true"><use href="${iconSpritePrefix}#icon-${name}"></use></svg>`;
+
+async function loadIconSprite() {
+  try {
+    const response = await fetch('/assets/icons.svg?v=20260910-v100', {cache:'force-cache'});
+    if (!response.ok) return;
+    const parsed = new DOMParser().parseFromString(await response.text(), 'image/svg+xml');
+    if (parsed.querySelector('parsererror') || !parsed.querySelector('symbol')) return;
+    const sprite = document.importNode(parsed.documentElement, true);
+    sprite.id = 'icon-sprite';
+    sprite.classList.add('icon-sprite');
+    sprite.setAttribute('aria-hidden', 'true');
+    document.body.prepend(sprite);
+    iconSpritePrefix = '';
+  } catch (_) {
+    // The external sprite remains as a safe fallback.
+  }
+}
 
 const platform = params.get('platform') || tg?.platform || '';
 const hasNativeBack = ['android', 'ios'].includes(platform);
@@ -28,8 +46,13 @@ function parentPage() {
   return 'home';
 }
 function isDetailPage() { return state.page.includes(':'); }
+function rememberScroll() {
+  const view = $('#page-view');
+  if (view) state.scrollPositions[state.page] = view.scrollTop;
+}
 function navigate(page) {
   if (page === state.page) return;
+  rememberScroll();
   state.page = page;
   state.cache = {...state.cache, overview:state.cache.overview};
   history.replaceState(null, '', `/app?page=${encodeURIComponent(state.page)}${state.preview ? '&preview=1' : ''}${hasNativeBack ? `&platform=${platform}` : ''}`);
@@ -137,6 +160,8 @@ function updateNavigation() {
 
 function render() {
   if (!state.data) return;
+  const currentView = $('#page-view');
+  if (currentView && renderedPage === state.page) state.scrollPositions[state.page] = currentView.scrollTop;
   applyTheme(state.data.theme);
   if (state.data.emergency?.enabled && !state.data.user.is_admin) {
     $('#app').innerHTML = `<main class="locked-screen">${icon('alert')}<h1>Технические работы</h1><p>${esc(state.data.emergency.message||state.data.content.emergency_message)}</p></main>`;
@@ -153,13 +178,18 @@ function render() {
   updateNavigation();
   const view = $('#page-view');
   const viewPage = state.page.split(':')[0];
+  const targetPage = state.page;
+  const savedScroll = state.scrollPositions[targetPage] || 0;
   const commit = () => {
     view.className = `page page-${viewPage}`;
     view.innerHTML = body;
   };
   const pageChanged = Boolean(renderedPage && renderedPage !== state.page);
   commit();
-  if (pageChanged) view.scrollTop = 0;
+  view.scrollTop = savedScroll;
+  requestAnimationFrame(() => {
+    if (state.page === targetPage) view.scrollTop = savedScroll;
+  });
   if (pageChanged && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
     view.getAnimations().forEach(animation => animation.cancel());
     view.animate([{opacity:.9, transform:'translateY(3px)'}, {opacity:1, transform:'translateY(0)'}], {duration:140, easing:'cubic-bezier(.32,.72,0,1)'});
@@ -187,7 +217,7 @@ function homePage() {
   }
   return `<div class="home-stage"><section class="hero subscription-active">
     <div class="hero-head"><div><p class="eyebrow">${tr('expires')}</p><h2 class="expiry">${formatDate(sub.expires_at)}</h2></div><span class="status-dot active" aria-label="Подписка активна"></span></div>
-    <div class="hero-stats"><div class="stat-block"><small>${tr('devices')}</small><strong>${Number(sub.connected_devices || 0)} / ${sub.device_limit || 0}</strong></div><div class="stat-block"><small>${tr('traffic')}</small><strong>${limit ? bytes(limit) : tr('unlimited')}</strong></div></div>
+    <div class="hero-stats"><div class="stat-block"><small>${tr('devices')}</small><strong>${Number(sub.connected_devices || 0)} / ${Number(sub.device_limit) > 0 ? Number(sub.device_limit) : '∞'}</strong></div><div class="stat-block"><small>${tr('traffic')}</small><strong>${limit ? bytes(limit) : tr('unlimited')}</strong></div></div>
     <div class="traffic-row"><span>Использовано</span><strong>${bytes(used)}${limit ? ` из ${bytes(limit)}` : ''}</strong></div><div class="progress" role="progressbar" aria-valuenow="${Math.round(progress)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${progress}%"></i></div>
     <div class="compact-stack"><button class="secondary" data-nav="tariffs">${icon('plans')}<span>${esc(content.renew_button || tr('renew'))}</span></button><button class="primary" data-action="connect" ${sub.subscription_url ? '' : 'disabled'}>${icon('link')}<span>${esc(content.connect_button || tr('connect'))}</span></button></div>
   </section></div>`;
@@ -200,7 +230,7 @@ function tariffsPage() {
   if (!tariffs.length) return empty('plans','Тарифы пока не добавлены');
   if (!tariffs.some(t => t.id === state.selectedTariffID)) state.selectedTariffID = (tariffs.find(t => t.pinned) || tariffs[0]).id;
   const selected = tariffs.find(t => t.id === state.selectedTariffID);
-  return `<div class="tariffs-stage"><div class="tariff-list">${tariffs.map(t => { const active=t.id===state.selectedTariffID; return `<button type="button" class="tariff ${active ? 'selected' : ''}" data-select-tariff="${t.id}" aria-pressed="${active}">${t.pinned ? '<span class="tariff-badge">Выгодно</span>' : ''}<h3>${esc(t.name)}</h3><p>${esc(t.description)}</p><div class="tariff-meta"><span>${icon('clock')}${t.days} ${tr('days')}</span><span>${icon('devices')}${t.device_limit} устр.</span><span>${icon('traffic')}${t.traffic_gb ? `${t.traffic_gb} ГБ` : tr('unlimited')}</span></div><div class="tariff-footer"><span class="price">${money(t.price_rub)}</span><span class="tariff-selection">${active ? `${icon('check')}Выбрано` : ''}</span></div></button>`; }).join('')}</div><button class="primary tariff-pay" data-buy="${selected.id}"><span>${tr('buy')} · ${money(selected.price_rub)}</span></button></div>`;
+  return `<div class="tariffs-stage"><div class="tariff-list">${tariffs.map(t => { const active=t.id===state.selectedTariffID; return `<button type="button" class="tariff ${active ? 'selected' : ''}" data-select-tariff="${t.id}" aria-pressed="${active}">${t.pinned ? '<span class="tariff-badge">Выгодно</span>' : ''}<h3>${esc(t.name)}</h3><p>${esc(t.description)}</p><div class="tariff-meta"><span>${icon('clock')}${t.days} ${tr('days')}</span><span>${icon('devices')}${Number(t.device_limit) > 0 ? t.device_limit : '∞'} устр.</span><span>${icon('traffic')}${t.traffic_gb ? `${t.traffic_gb} ГБ` : tr('unlimited')}</span></div><div class="tariff-footer"><span class="price">${money(t.price_rub)}</span><span class="tariff-selection">${active ? `${icon('check')}Выбрано` : ''}</span></div></button>`; }).join('')}</div><button class="primary tariff-pay" data-buy="${selected.id}"><span>${tr('buy')} · ${money(selected.price_rub)}</span></button></div>`;
 }
 
 function supportPage() {
@@ -431,7 +461,7 @@ document.addEventListener('submit', async event => {
     if(form.id==='checkout-form'){const body=Object.fromEntries(new FormData(form));const out=await api('/api/payments/checkout',{method:'POST',body:JSON.stringify(body)});closeModal();tg?.openLink?tg.openLink(out.pay_url):window.open(out.pay_url,'_blank');toast(`Счёт на ${money(out.amount_rub)} создан`);return;}
     if(form.id==='ticket-form'){const body=Object.fromEntries(new FormData(form));const ticket=await api('/api/tickets',{method:'POST',body:JSON.stringify(body)});state.data.tickets.unshift(ticket);closeModal();navigate(`ticket:${ticket.id}`);toast('Тикет создан');return;}
     if(form.id==='chat-form'){const input=form.elements.text,draft=input.value.trim();if(!draft)return;const id=state.page.split(':')[1],idx=state.data.tickets.findIndex(t=>t.id===id),oldCount=Math.max(0,state.data.tickets[idx]?.messages?.length||0),button=$('button',form),buttonHTML=button.innerHTML;input.disabled=true;button.disabled=true;button.innerHTML=icon('loader');try{const ticket=await api(`/api/tickets/${id}/messages`,{method:'POST',body:JSON.stringify({text:draft})});state.data.tickets[idx]=ticket;const chat=$('.chat'),messages=ticket.messages||[];if(chat){if(messages.length>=oldCount&&oldCount>0){messages.slice(oldCount).forEach(message=>chat.insertAdjacentHTML('beforeend',ticketMessage(message)))}else{chat.innerHTML=ticketMessages(messages)}chat.scrollTo({top:chat.scrollHeight,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'})}const status=$('.ticket-context .status');if(status){status.className=`status ${ticket.status}`;status.textContent=statusLabel(ticket.status)}input.value='';}finally{if(document.contains(form)){input.disabled=false;button.disabled=false;button.innerHTML=buttonHTML;input.focus()}}return;}
-    if(form.dataset.settingForm){const key=form.dataset.settingForm,body=collectForm(form);const out=await api(`/api/admin/settings/${key}`,{method:'PUT',body:JSON.stringify({value:body})});state.cache[`setting:${key}`]=out;if(key==='theme'){state.data.theme={...state.data.theme,...out.value};applyTheme(state.data.theme)}if(key==='language')state.data.language=out.value;if(key==='emergency')state.data.emergency=out.value;if(key==='features')state.data.features={...state.data.features,...out.value};if(key==='content')state.data.content={...state.data.content,...out.value};if(key==='more_order')state.data.more_order=out.value.items;toast('Сохранено');if(!['integrations','content'].includes(key))render();return;}
+    if(form.dataset.settingForm){const key=form.dataset.settingForm,body=collectForm(form);const cacheKey=`setting:${key}`,previous=state.cache[cacheKey]||{};const out=await api(`/api/admin/settings/${key}`,{method:'PUT',body:JSON.stringify({value:body})});state.cache[cacheKey]=key==='theme'?{...previous,...out,theme_templates:out.theme_templates||previous.theme_templates}:out;if(key==='theme'){state.data.theme={...state.data.theme,...out.value};applyTheme(state.data.theme)}if(key==='language')state.data.language=out.value;if(key==='emergency')state.data.emergency=out.value;if(key==='features')state.data.features={...state.data.features,...out.value};if(key==='content')state.data.content={...state.data.content,...out.value};if(key==='more_order')state.data.more_order=out.value.items;toast('Сохранено');if(!['integrations','content'].includes(key))render();return;}
     if(form.id==='tariff-admin-form'){const id=form.dataset.id,body=collectForm(form);body.price_rub=Number(body.price_rub);['days','traffic_gb','device_limit','position'].forEach(k=>body[k]=Number(body[k]));const method=id==='new'?'POST':'PUT',path=id==='new'?'/api/admin/tariffs':`/api/admin/tariffs/${id}`;await api(path,{method,body:JSON.stringify(body)});closeModal();state.cache['admin:tariffs']=null;await loadAdmin('admin:tariffs','/api/admin/tariffs');toast('Тариф сохранён');return;}
     if(form.id==='user-admin-form'){const body=collectForm(form);['add_days','add_traffic_gb','device_limit'].forEach(k=>body[k]=Number(body[k]));await api(`/api/admin/users/${form.dataset.id}`,{method:'PATCH',body:JSON.stringify(body)});closeModal();state.cache['admin:users']=null;await loadAdmin('admin:users','/api/admin/users');toast('Пользователь обновлён');return;}
     if(form.id==='promo-form'){const body=collectForm(form);body.discount_percent=Number(body.discount_percent);body.max_uses=Number(body.max_uses);await api('/api/admin/promos',{method:'POST',body:JSON.stringify(body)});closeModal();state.cache['admin:promos']=null;await loadAdmin('admin:promos','/api/admin/promos');toast('Промокод создан');return;}
@@ -452,6 +482,7 @@ async function loadBootstrap() { state.data = await api('/api/bootstrap'); apply
 
 async function init() {
   try {
+    await loadIconSprite();
     if (state.preview) { state.data = previewData(); applyTheme(state.data.theme); render(); return; }
     if (!state.token) {
       if (!tg?.initData) throw new Error('Откройте приложение кнопкой внутри Telegram-бота.');
@@ -463,7 +494,7 @@ async function init() {
   } catch(e) { sessionStorage.removeItem('tgs_session'); $('#app').innerHTML=`<main class="locked-screen">${icon('link')}<h1>TGS VPN</h1><p>${esc(e.message)}</p></main>`; }
 }
 
-function previewData(){return {user:{id:1,telegram_id:6402520205,username:'bruh',remnawave_username:'tgs_6402520205',first_name:'Максим',photo_url:'',is_admin:true,trial_used:false,subscription:{status:'ACTIVE',expires_at:new Date(Date.now()+37*86400000).toISOString(),traffic_limit_bytes:107374182400,traffic_used_bytes:28991029248,device_limit:3,connected_devices:2,subscription_url:'https://example.com/sub'}},content:{brand:'TGS VPN',start_title:'Добро пожаловать',start_text:'',trial_button:'Бесплатный период',connect_button:'Подключиться',renew_button:'Продлить',support_welcome:'Опишите вопрос — поддержка ответит в этом чате.',emergency_message:'Сервис временно недоступен.'},features:{trial:true,server_status:true,devices:true,payments:true,referrals:true,promo_codes:true,support:true},trial:{enabled:true,days:3,traffic_gb:10,device_limit:1,internal_squads:[],external_squad_uuid:''},theme:{template:'telegram',accent:'#2aabee',background:'#111315',surface:'#1c1f22',surface_alt:'#24282d',text:'#ffffff',muted:'#8f969e'},language:{default:'ru'},emergency:{enabled:false,message:'Сервис временно недоступен.'},more_order:['servers','devices','payments','referral'],tariffs:[{id:'1',name:'Старт',description:'Для одного устройства',price_rub:199,days:30,traffic_gb:100,device_limit:1,pinned:false},{id:'2',name:'Оптимальный',description:'Три месяца без забот',price_rub:499,days:90,traffic_gb:300,device_limit:3,pinned:true},{id:'3',name:'Годовой',description:'Максимальная выгода',price_rub:1490,days:365,traffic_gb:0,device_limit:5,pinned:false}],tickets:[{id:'t1',subject:'Не подключается на iPhone',status:'answered',created_at:new Date().toISOString(),updated_at:new Date().toISOString(),messages:[{text:'Не получается добавить подписку',is_admin:false,created_at:new Date(Date.now()-3600000).toISOString()},{text:'Проверьте разрешение VPN в настройках iOS.',is_admin:true,created_at:new Date().toISOString()}]}],payments:[{id:'p1',provider:'yookassa',status:'succeeded',amount_rub:499,snapshot:{name:'Оптимальный'},created_at:new Date().toISOString()}],referral:{count:4,link:'https://t.me/rwTGS_bot?start=tgs17d4b22',referral_days:7,referral_traffic_gb:10},payment_methods:[{id:'yookassa',name:'ЮKassa',enabled:true},{id:'cryptobot',name:'CryptoBot',enabled:true}]};}
+function previewData(){return {user:{id:1,telegram_id:6402520205,username:'bruh',remnawave_username:'tgs_6402520205',first_name:'Максим',photo_url:'',is_admin:true,trial_used:false,subscription:{status:'ACTIVE',expires_at:new Date(Date.now()+37*86400000).toISOString(),traffic_limit_bytes:107374182400,traffic_used_bytes:62277025792,device_limit:0,connected_devices:3,subscription_url:'https://example.com/sub'}},content:{brand:'TGS VPN',start_title:'Добро пожаловать',start_text:'',trial_button:'Бесплатный период',connect_button:'Подключиться',renew_button:'Продлить',support_welcome:'Опишите вопрос — поддержка ответит в этом чате.',emergency_message:'Сервис временно недоступен.'},features:{trial:true,server_status:true,devices:true,payments:true,referrals:true,promo_codes:true,support:true},trial:{enabled:true,days:3,traffic_gb:10,device_limit:1,internal_squads:[],external_squad_uuid:''},theme:{template:'telegram',accent:'#2aabee',background:'#111315',surface:'#1c1f22',surface_alt:'#24282d',text:'#ffffff',muted:'#8f969e'},language:{default:'ru'},emergency:{enabled:false,message:'Сервис временно недоступен.'},more_order:['servers','devices','payments','referral'],tariffs:[{id:'1',name:'Старт',description:'Для одного устройства',price_rub:199,days:30,traffic_gb:100,device_limit:1,pinned:false},{id:'2',name:'Оптимальный',description:'Три месяца без забот',price_rub:499,days:90,traffic_gb:300,device_limit:3,pinned:true},{id:'3',name:'Годовой',description:'Максимальная выгода',price_rub:1490,days:365,traffic_gb:0,device_limit:5,pinned:false}],tickets:[{id:'t1',subject:'Не подключается на iPhone',status:'answered',created_at:new Date().toISOString(),updated_at:new Date().toISOString(),messages:[{text:'Не получается добавить подписку',is_admin:false,created_at:new Date(Date.now()-3600000).toISOString()},{text:'Проверьте разрешение VPN в настройках iOS.',is_admin:true,created_at:new Date().toISOString()}]}],payments:[{id:'p1',provider:'yookassa',status:'succeeded',amount_rub:499,snapshot:{name:'Оптимальный'},created_at:new Date().toISOString()}],referral:{count:4,link:'https://t.me/rwTGS_bot?start=tgs17d4b22',referral_days:7,referral_traffic_gb:10},payment_methods:[{id:'yookassa',name:'ЮKassa',enabled:true},{id:'cryptobot',name:'CryptoBot',enabled:true}]};}
 async function previewApi(path,options={}) {
   await new Promise(resolve=>setTimeout(resolve,80));
   if(path==='/api/nodes')return [{name:'Германия',country_code:'DE',status:'online'},{name:'Нидерланды',country_code:'NL',status:'online'},{name:'Финляндия',country_code:'FI',status:'offline'}];

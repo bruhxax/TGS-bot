@@ -3,6 +3,8 @@ package server
 import (
 	"testing"
 	"time"
+
+	"tgs-bot/internal/store"
 )
 
 func TestDiscounted(t *testing.T) {
@@ -73,5 +75,32 @@ func TestEntitlementTraffic(t *testing.T) {
 				t.Fatalf("got (%d, %t), want (%d, %t)", got, update, test.want, test.update)
 			}
 		})
+	}
+}
+
+func TestSyncRemoteReadsCurrentRemnawaveTrafficShape(t *testing.T) {
+	user := store.User{TrafficUsedBytes: 1, DeviceLimit: 3}
+	syncRemote(&user, map[string]any{
+		"userTraffic":       map[string]any{"usedTrafficBytes": float64(58 * gigabyte)},
+		"trafficLimitBytes": float64(100 * gigabyte),
+		"hwidDeviceLimit":   nil,
+	})
+
+	if user.TrafficUsedBytes != 58*gigabyte {
+		t.Fatalf("used traffic = %d; want %d", user.TrafficUsedBytes, 58*gigabyte)
+	}
+	if user.TrafficLimitBytes != 100*gigabyte {
+		t.Fatalf("traffic limit = %d; want %d", user.TrafficLimitBytes, 100*gigabyte)
+	}
+	if user.DeviceLimit != 0 {
+		t.Fatalf("device limit = %d; want 0 for unlimited", user.DeviceLimit)
+	}
+}
+
+func TestSyncRemoteKeepsLegacyTrafficCompatibility(t *testing.T) {
+	user := store.User{}
+	syncRemote(&user, map[string]any{"usedTrafficBytes": float64(12 * gigabyte)})
+	if user.TrafficUsedBytes != 12*gigabyte {
+		t.Fatalf("used traffic = %d; want legacy value", user.TrafficUsedBytes)
 	}
 }
