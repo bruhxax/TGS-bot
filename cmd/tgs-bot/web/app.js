@@ -14,7 +14,7 @@ const i18n = {
 };
 
 const params = new URLSearchParams(location.search);
-const state = { token: sessionStorage.getItem('tgs_session') || '', data: null, page: params.get('page') || 'home', preview: isPreview, cache: {} };
+const state = { token: sessionStorage.getItem('tgs_session') || '', data: null, page: params.get('page') || 'home', preview: isPreview, cache: {}, selectedTariffID: '' };
 const tr = key => i18n[state.data?.language?.default || 'ru']?.[key] || i18n.ru[key] || key;
 
 const icon = name => `<svg class="icon${name === 'loader' ? ' icon-loader' : ''}" viewBox="0 0 24 24" aria-hidden="true"><use href="/assets/icons.svg#icon-${name}"></use></svg>`;
@@ -29,9 +29,11 @@ function parentPage() {
 }
 function isDetailPage() { return state.page.includes(':'); }
 function navigate(page) {
+  if (page === state.page) return;
   state.page = page;
   state.cache = {...state.cache, overview:state.cache.overview};
   history.replaceState(null, '', `/app?page=${encodeURIComponent(state.page)}${state.preview ? '&preview=1' : ''}${hasNativeBack ? `&platform=${platform}` : ''}`);
+  tg?.HapticFeedback?.selectionChanged?.();
   render();
 }
 function syncBackButton() {
@@ -85,13 +87,46 @@ function bytes(value) { if (!value) return '0 ГБ'; return `${(value / 10737418
 function money(value) { return `${Number(value || 0).toLocaleString('ru-RU')} ₽`; }
 function statusLabel(status) { return ({ACTIVE:'Активна',INACTIVE:'Не активна',EXPIRED:'Истекла',DISABLED:'Отключена',LIMITED:'Лимит',open:'Открыт',answered:'Ответ получен',closed:'Закрыт',pending:'Ожидает',processing:'Обработка',succeeded:'Оплачен',failed:'Ошибка'}[status] || status); }
 
-function nav() {
+function navigationItems() {
   const items = [
     ['home','home',tr('home')], ['tariffs','plans',tr('tariffs')], ['support','support',tr('support')], ['more','more',tr('more')]
   ];
   if (state.data.user.is_admin) items.push(['admin','admin',tr('admin')]);
+  return items;
+}
+
+function nav() {
+  const items = navigationItems();
   const rootPage = state.page.split(':')[0];
-  return `<nav class="bottom-nav" style="--nav-count:${items.length}" aria-label="Основная навигация">${items.map(([page,ico,label]) => `<button class="nav-button ${rootPage === page ? 'active' : ''}" data-nav="${page}" aria-current="${rootPage === page ? 'page' : 'false'}">${icon(ico)}<span>${esc(label)}</span></button>`).join('')}</nav>`;
+  const activeIndex = Math.max(0, items.findIndex(([page]) => page === rootPage));
+  return `<nav class="bottom-nav" data-nav-keys="${items.map(([page]) => page).join(',')}" style="--nav-count:${items.length};--indicator-x:${activeIndex * 100}%;--nav-width:${items.length * 48 + 16}px" aria-label="Основная навигация"><span class="nav-indicator" aria-hidden="true"></span>${items.map(([page,ico,label]) => `<button class="nav-button ${rootPage === page ? 'active' : ''}" data-nav="${page}" aria-label="${esc(label)}" title="${esc(label)}" ${rootPage === page ? 'aria-current="page"' : ''}>${icon(ico)}</button>`).join('')}</nav>`;
+}
+
+let renderedPage = '';
+let activeViewTransition = null;
+function ensureShell() {
+  if ($('.app-shell', $('#app'))) return;
+  $('#app').innerHTML = `<div class="app-shell"><main class="page" id="page-view"></main><div id="nav-slot">${nav()}</div></div>`;
+}
+
+function updateNavigation() {
+  const items = navigationItems();
+  const keys = items.map(([page]) => page).join(',');
+  const slot = $('#nav-slot');
+  let navigation = $('.bottom-nav', slot);
+  if (!navigation || navigation.dataset.navKeys !== keys) {
+    slot.innerHTML = nav();
+    navigation = $('.bottom-nav', slot);
+  }
+  const rootPage = state.page.split(':')[0];
+  const activeIndex = Math.max(0, items.findIndex(([page]) => page === rootPage));
+  navigation.style.setProperty('--indicator-x', `${activeIndex * 100}%`);
+  $$('.nav-button', navigation).forEach(button => {
+    const active = button.dataset.nav === rootPage;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
 }
 
 function render() {
@@ -99,6 +134,8 @@ function render() {
   applyTheme(state.data.theme);
   if (state.data.emergency?.enabled && !state.data.user.is_admin) {
     $('#app').innerHTML = `<main class="locked-screen">${icon('alert')}<h1>Технические работы</h1><p>${esc(state.data.content.emergency_message)}</p></main>`;
+    tg?.BackButton?.hide?.();
+    renderedPage = '';
     return;
   }
   let body;
@@ -106,8 +143,33 @@ function render() {
   else if (state.page.startsWith('more:')) body = moreDetail(state.page.split(':')[1]);
   else if (state.page.startsWith('admin:')) body = adminDetail(state.page.split(':')[1]);
   else body = ({home:homePage, tariffs:tariffsPage, support:supportPage, more:morePage, admin:adminPage}[state.page] || homePage)();
-  $('#app').innerHTML = `<div class="app-shell"><main class="page">${body}</main>${nav()}</div>`;
+  ensureShell();
+  updateNavigation();
+  const view = $('#page-view');
+  const rootPage = state.page.split(':')[0];
+  const commit = () => {
+    view.className = `page page-${rootPage}`;
+    view.innerHTML = body;
+  };
+  const pageChanged = Boolean(renderedPage && renderedPage !== state.page);
+  if (pageChanged && document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    activeViewTransition?.skipTransition?.();
+    try {
+      const transition = document.startViewTransition(commit);
+      activeViewTransition = transition;
+      transition.finished.finally(() => { if (activeViewTransition === transition) activeViewTransition = null; });
+    } catch (_) {
+      commit();
+    }
+  } else {
+    commit();
+    if (pageChanged && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      view.animate([{opacity:.82, transform:'translateY(6px)'}, {opacity:1, transform:'translateY(0)'}], {duration:320, easing:'cubic-bezier(.32,.72,0,1)'});
+    }
+  }
+  renderedPage = state.page;
   syncBackButton();
+  if (state.page.startsWith('ticket:')) requestAnimationFrame(() => { const chat = $('.chat'); if (chat) chat.scrollTop = chat.scrollHeight; });
 }
 
 function homePage() {
@@ -121,24 +183,27 @@ function homePage() {
   const progress = limit ? Math.min(100, used / limit * 100) : 0;
   if (!hasSubscription) {
     const trialButton = features.trial && trial.enabled && !user.trial_used ? `<button class="secondary" data-action="trial">${icon('gift')}<span>${esc(content.trial_button || 'Бесплатный период')}</span></button>` : '';
-    return `<section class="hero subscription-empty"><span class="status-dot danger" aria-label="Подписки нет"></span><div class="empty-state-icon">${icon('unavailable')}</div><h2>Подписки нету</h2><div class="compact-stack">${trialButton}<button class="primary" data-nav="tariffs">${icon('plans')}<span>Купить подписку</span></button></div></section>`;
+    return `<div class="home-stage"><section class="hero subscription-empty"><span class="status-dot danger" aria-label="Подписки нет"></span><div class="empty-state-icon">${icon('unavailable')}</div><h2>Подписки нету</h2><div class="compact-stack">${trialButton}<button class="primary" data-nav="tariffs">${icon('plans')}<span>Купить подписку</span></button></div></section></div>`;
   }
   if (expired || !active) {
-    return `<section class="hero subscription-empty"><span class="status-dot danger" aria-label="Подписка закончилась"></span><div class="empty-state-icon">${icon('unavailable')}</div><h2>Подписка закончилась</h2><div class="compact-stack"><button class="primary" data-nav="tariffs">${icon('plans')}<span>${esc(content.renew_button || tr('renew'))}</span></button></div></section>`;
+    return `<div class="home-stage"><section class="hero subscription-empty"><span class="status-dot danger" aria-label="Подписка закончилась"></span><div class="empty-state-icon">${icon('unavailable')}</div><h2>Подписка закончилась</h2><div class="compact-stack"><button class="primary" data-nav="tariffs">${icon('plans')}<span>${esc(content.renew_button || tr('renew'))}</span></button></div></section></div>`;
   }
-  return `<section class="hero subscription-active">
+  return `<div class="home-stage"><section class="hero subscription-active">
     <div class="hero-head"><div><p class="eyebrow">${tr('expires')}</p><h2 class="expiry">${formatDate(sub.expires_at)}</h2></div><span class="status-dot active" aria-label="Подписка активна"></span></div>
     <div class="hero-stats"><div class="stat-block"><small>${tr('devices')}</small><strong>${Number(sub.connected_devices || 0)} / ${sub.device_limit || 0}</strong></div><div class="stat-block"><small>${tr('traffic')}</small><strong>${limit ? bytes(limit) : tr('unlimited')}</strong></div></div>
     <div class="traffic-row"><span>Использовано</span><strong>${bytes(used)}${limit ? ` из ${bytes(limit)}` : ''}</strong></div><div class="progress" role="progressbar" aria-valuenow="${Math.round(progress)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${progress}%"></i></div>
     <div class="compact-stack"><button class="secondary" data-nav="tariffs">${icon('plans')}<span>${esc(content.renew_button || tr('renew'))}</span></button><button class="primary" data-action="connect" ${sub.subscription_url ? '' : 'disabled'}>${icon('link')}<span>${esc(content.connect_button || tr('connect'))}</span></button></div>
-  </section>`;
+  </section></div>`;
 }
 
 function row(ico,title,subtitle,target,action='nav') { return `<button class="list-row" data-${action}="${esc(target)}"><span class="icon-box">${icon(ico)}</span><span><strong>${esc(title)}</strong><small>${esc(subtitle)}</small></span><span class="chevron">${icon('arrow')}</span></button>`; }
 
 function tariffsPage() {
   const tariffs = state.data.tariffs || [];
-  return `<div class="tariff-list">${tariffs.length ? tariffs.map(t => `<article class="tariff ${t.pinned ? 'pinned' : ''}">${t.pinned ? '<span class="tariff-badge">Выгодно</span>' : ''}<h3>${esc(t.name)}</h3><p>${esc(t.description)}</p><div class="tariff-meta"><span>${icon('clock')}${t.days} ${tr('days')}</span><span>${icon('devices')}${t.device_limit} устр.</span><span>${icon('traffic')}${t.traffic_gb ? `${t.traffic_gb} ГБ` : tr('unlimited')}</span></div><div class="tariff-footer"><span class="price">${money(t.price_rub)}</span><button class="primary" data-buy="${t.id}">${tr('buy')}</button></div></article>`).join('') : empty('plans','Тарифы пока не добавлены')}</div>`;
+  if (!tariffs.length) return empty('plans','Тарифы пока не добавлены');
+  if (!tariffs.some(t => t.id === state.selectedTariffID)) state.selectedTariffID = (tariffs.find(t => t.pinned) || tariffs[0]).id;
+  const selected = tariffs.find(t => t.id === state.selectedTariffID);
+  return `<div class="tariffs-stage"><div class="tariff-list">${tariffs.map(t => { const active=t.id===state.selectedTariffID; return `<button type="button" class="tariff ${active ? 'selected' : ''}" data-select-tariff="${t.id}" aria-pressed="${active}">${t.pinned ? '<span class="tariff-badge">Выгодно</span>' : ''}<h3>${esc(t.name)}</h3><p>${esc(t.description)}</p><div class="tariff-meta"><span>${icon('clock')}${t.days} ${tr('days')}</span><span>${icon('devices')}${t.device_limit} устр.</span><span>${icon('traffic')}${t.traffic_gb ? `${t.traffic_gb} ГБ` : tr('unlimited')}</span></div><div class="tariff-footer"><span class="price">${money(t.price_rub)}</span><span class="tariff-selection">${active ? `${icon('check')}Выбрано` : ''}</span></div></button>`; }).join('')}</div><button class="primary tariff-pay" data-buy="${selected.id}"><span>${tr('buy')} · ${money(selected.price_rub)}</span></button></div>`;
 }
 
 function supportPage() {
@@ -146,11 +211,19 @@ function supportPage() {
   return `<div class="support-intro"><p>${esc(state.data.content.support_welcome)}</p><button class="primary" data-action="new-ticket">${icon('plus')}<span>${tr('createTicket')}</span></button></div><div class="section-title"><h3>${tr('tickets')}</h3><span>${tickets.length}</span></div><div class="list ticket-list">${tickets.length ? tickets.map(t => { const last=t.messages?.[t.messages.length-1]; return `<button class="list-row ticket-row" data-nav="ticket:${t.id}"><span class="icon-box">${icon('support')}</span><span class="ticket-copy"><strong>${esc(t.subject)}</strong><small>${esc(last?.text || 'Сообщений пока нет')}</small></span><span class="ticket-side"><span class="ticket-time">${formatStamp(t.updated_at)}</span><span class="status ${esc(t.status)}">${statusLabel(t.status)}</span></span></button>`; }).join('') : empty('support','Открытых тикетов нет')}</div>`;
 }
 
+function ticketMessage(message) {
+  return `<article class="bubble ${message.is_admin ? 'support-message' : 'mine'}"><strong>${message.is_admin ? 'Поддержка' : 'Вы'}</strong><p>${esc(message.text)}</p><time>${formatStamp(message.created_at)}</time></article>`;
+}
+
+function ticketMessages(messages) {
+  return messages.length ? messages.map(ticketMessage).join('') : empty('support','Сообщений пока нет');
+}
+
 function ticketPage(id) {
   const ticket = (state.page.startsWith('admin:') ? state.cache.adminTickets : state.data.tickets)?.find(t => t.id === id);
   if (!ticket) return `${detailHead('Тикет', 'support')}${empty('support','Тикет не найден')}`;
   const messages = ticket.messages || [];
-  return `<section class="ticket-layout">${detailHead(ticket.subject, 'support')}<div class="ticket-context"><span class="status ${esc(ticket.status)}">${statusLabel(ticket.status)}</span></div><div class="chat" aria-label="Переписка с поддержкой">${messages.length ? messages.map(m => `<article class="bubble ${m.is_admin ? 'support-message' : 'mine'}"><strong>${m.is_admin ? 'Поддержка' : 'Вы'}</strong><p>${esc(m.text)}</p><time>${formatStamp(m.created_at)}</time></article>`).join('') : empty('support','Сообщений пока нет')}</div>${ticket.status !== 'closed' ? `<form class="chat-compose" id="chat-form"><input name="text" maxlength="5000" aria-label="Сообщение" placeholder="Сообщение…" autocomplete="off"><button class="icon-button" aria-label="Отправить">${icon('send')}</button></form>` : '<p class="notice">Тикет закрыт</p>'}</section>`;
+  return `<section class="ticket-layout">${detailHead(ticket.subject, 'support')}<div class="ticket-context"><span class="status ${esc(ticket.status)}">${statusLabel(ticket.status)}</span></div><div class="chat" aria-label="Переписка с поддержкой">${ticketMessages(messages)}</div>${ticket.status !== 'closed' ? `<form class="chat-compose" id="chat-form"><input name="text" maxlength="5000" aria-label="Сообщение" placeholder="Сообщение…" autocomplete="off"><button class="icon-button" aria-label="Отправить">${icon('send')}</button></form>` : '<p class="notice">Тикет закрыт</p>'}</section>`;
 }
 
 const moreItems = {
@@ -243,11 +316,32 @@ function adminPromosView(rows) { if (!Array.isArray(rows)) return empty('percent
 
 function empty(ico,text) { return `<div class="empty">${icon(ico)}${esc(text)}</div>`; }
 
+let modalCloseTimer = null;
+let modalTrigger = null;
 function openModal(title, content, actions = '') {
+  if (modalCloseTimer) clearTimeout(modalCloseTimer);
+  if (!$('.modal-backdrop')) modalTrigger = document.activeElement;
   $('#modal-root').innerHTML = `<div class="modal-backdrop" data-modal-backdrop><section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><header class="modal-head"><h3 id="modal-title">${esc(title)}</h3><button class="modal-close" data-close-modal aria-label="Закрыть">${icon('close')}</button></header>${content}${actions}</section></div>`;
   setTimeout(() => $('.modal input, .modal select, .modal button')?.focus(), 30);
 }
-function closeModal() { $('#modal-root').innerHTML = ''; }
+function closeModal(immediate = false) {
+  const root = $('#modal-root');
+  const backdrop = $('.modal-backdrop', root);
+  if (!backdrop) return;
+  if (backdrop.classList.contains('closing')) return;
+  if (immediate || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    root.innerHTML = '';
+    modalTrigger?.focus?.();
+    return;
+  }
+  backdrop.classList.add('closing');
+  backdrop.setAttribute('aria-hidden', 'true');
+  modalCloseTimer = setTimeout(() => {
+    if (root.firstElementChild === backdrop) root.innerHTML = '';
+    modalTrigger?.focus?.();
+    modalCloseTimer = null;
+  }, 300);
+}
 
 function buyModal(id) {
   const tariff=state.data.tariffs.find(t=>t.id===id), methods=state.data.payment_methods.filter(m=>m.enabled);
@@ -262,6 +356,7 @@ function promoModal(){openModal('Новый промокод',`<form id="promo-f
 document.addEventListener('click', async event => {
   const navButton=event.target.closest('[data-nav]'); if(navButton){navigate(navButton.dataset.nav);return;}
   if(event.target.closest('[data-close-modal]') || (event.target.matches('[data-modal-backdrop]'))){closeModal();return;}
+  const tariffChoice=event.target.closest('[data-select-tariff]');if(tariffChoice){const id=tariffChoice.dataset.selectTariff;if(id===state.selectedTariffID)return;state.selectedTariffID=id;$$('[data-select-tariff]').forEach(card=>{const selected=card.dataset.selectTariff===id;card.classList.toggle('selected',selected);card.setAttribute('aria-pressed',String(selected));const marker=$('.tariff-selection',card);if(marker)marker.innerHTML=selected?`${icon('check')}Выбрано`:''});const tariff=state.data.tariffs.find(item=>item.id===id);const pay=$('.tariff-pay');if(tariff&&pay){pay.dataset.buy=id;$('span',pay).textContent=`${tr('buy')} · ${money(tariff.price_rub)}`;}tg?.HapticFeedback?.selectionChanged?.();return;}
   const buy=event.target.closest('[data-buy]');if(buy){buyModal(buy.dataset.buy);return;}
   const action=event.target.closest('[data-action]')?.dataset.action;
   if(action==='new-ticket'){ticketModal();return;} if(action==='new-promo'){promoModal();return;}
@@ -285,7 +380,7 @@ document.addEventListener('submit', async event => {
   try {
     if(form.id==='checkout-form'){const body=Object.fromEntries(new FormData(form));const out=await api('/api/payments/checkout',{method:'POST',body:JSON.stringify(body)});closeModal();tg?.openLink?tg.openLink(out.pay_url):window.open(out.pay_url,'_blank');toast(`Счёт на ${money(out.amount_rub)} создан`);return;}
     if(form.id==='ticket-form'){const body=Object.fromEntries(new FormData(form));const ticket=await api('/api/tickets',{method:'POST',body:JSON.stringify(body)});state.data.tickets.unshift(ticket);closeModal();navigate(`ticket:${ticket.id}`);toast('Тикет создан');return;}
-    if(form.id==='chat-form'){const input=form.elements.text;if(!input.value.trim())return;const id=state.page.split(':')[1];const ticket=await api(`/api/tickets/${id}/messages`,{method:'POST',body:JSON.stringify({text:input.value.trim()})});const idx=state.data.tickets.findIndex(t=>t.id===id);state.data.tickets[idx]=ticket;render();return;}
+    if(form.id==='chat-form'){const input=form.elements.text,draft=input.value.trim();if(!draft)return;const id=state.page.split(':')[1],idx=state.data.tickets.findIndex(t=>t.id===id),oldCount=Math.max(0,state.data.tickets[idx]?.messages?.length||0),button=$('button',form),buttonHTML=button.innerHTML;input.disabled=true;button.disabled=true;button.innerHTML=icon('loader');try{const ticket=await api(`/api/tickets/${id}/messages`,{method:'POST',body:JSON.stringify({text:draft})});state.data.tickets[idx]=ticket;const chat=$('.chat'),messages=ticket.messages||[];if(chat){if(messages.length>=oldCount&&oldCount>0){messages.slice(oldCount).forEach(message=>chat.insertAdjacentHTML('beforeend',ticketMessage(message)))}else{chat.innerHTML=ticketMessages(messages)}chat.scrollTo({top:chat.scrollHeight,behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'})}const status=$('.ticket-context .status');if(status){status.className=`status ${ticket.status}`;status.textContent=statusLabel(ticket.status)}input.value='';}finally{if(document.contains(form)){input.disabled=false;button.disabled=false;button.innerHTML=buttonHTML;input.focus()}}return;}
     if(form.dataset.settingForm){const key=form.dataset.settingForm,body=collectForm(form);const out=await api(`/api/admin/settings/${key}`,{method:'PUT',body:JSON.stringify({value:body})});state.cache[`setting:${key}`]=out;if(key==='theme'){state.data.theme={...state.data.theme,...out.value};applyTheme(state.data.theme)}if(key==='language'){state.data.language=out.value}if(key==='emergency'){state.data.emergency=out.value}if(key==='features'){state.data.features={...state.data.features,...out.value}}if(key==='more_order'){state.data.more_order=out.value.items}toast('Сохранено');render();return;}
     if(form.id==='tariff-admin-form'){const id=form.dataset.id,body=collectForm(form);body.price_rub=Number(body.price_rub);['days','traffic_gb','device_limit','position'].forEach(k=>body[k]=Number(body[k]));body.internal_squads=(body.internal_squads||'').split(',').map(x=>x.trim()).filter(Boolean);const method=id==='new'?'POST':'PUT',path=id==='new'?'/api/admin/tariffs':`/api/admin/tariffs/${id}`;await api(path,{method,body:JSON.stringify(body)});closeModal();state.cache['admin:tariffs']=null;await loadAdmin('admin:tariffs','/api/admin/tariffs');toast('Тариф сохранён');return;}
     if(form.id==='user-admin-form'){const body=collectForm(form);['add_days','add_traffic_gb','device_limit'].forEach(k=>body[k]=Number(body[k]));await api(`/api/admin/users/${form.dataset.id}`,{method:'PATCH',body:JSON.stringify(body)});closeModal();state.cache['admin:users']=null;await loadAdmin('admin:users','/api/admin/users');toast('Пользователь обновлён');return;}
