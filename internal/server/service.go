@@ -40,12 +40,102 @@ func (s *Server) RunMaintenance(ctx context.Context) {
 	for {
 		s.recoverPayments(ctx)
 		s.recoverBroadcasts(ctx)
+		s.grantExpiredAccess(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *Server) grantExpiredAccess(ctx context.Context) {
+	settings, err := s.Store.Setting(ctx, "grace")
+	if err != nil || !boolean(settings["enabled"]) {
+		return
+	}
+	days := number(settings["days"], 0)
+	squads := stringsList(settings["internal_squads"])
+	if days <= 0 || len(squads) == 0 {
+		return
+	}
+	users, err := s.Store.ExpiredSubscriptionUsers(ctx)
+	if err != nil {
+		s.Logger.Warn("list expired subscriptions", "error", err)
+		return
+	}
+	for _, candidate := range users {
+		if candidate.ExpiresAt == nil {
+			continue
+		}
+		sourceExpireAt := *candidate.ExpiresAt
+		claimed, claimErr := s.Store.ClaimSubscriptionGrace(ctx, candidate.ID, sourceExpireAt)
+		if claimErr != nil {
+			s.record(ctx, "grace", "Не удалось зарезервировать временный доступ", map[string]any{"error": claimErr.Error(), "user_id": candidate.ID})
+			continue
+		}
+		if !claimed {
+			continue
+		}
+		err = s.Store.WithUserLock(ctx, candidate.ID, func() error {
+			latest, loadErr := s.Store.UserByID(ctx, candidate.ID)
+			if loadErr != nil {
+				_ = s.Store.ReleaseSubscriptionGrace(context.Background(), candidate.ID, sourceExpireAt)
+				return loadErr
+			}
+			// A payment or an administrator may have changed the subscription after
+			// the worker selected it. Never overwrite that newer entitlement.
+			if latest.ExpiresAt == nil || !latest.ExpiresAt.Equal(sourceExpireAt) || latest.ExpiresAt.After(time.Now().UTC()) {
+				_ = s.Store.ReleaseSubscriptionGrace(context.Background(), candidate.ID, sourceExpireAt)
+				return nil
+			}
+			return s.provisionExpiredAccess(ctx, &latest, sourceExpireAt, days, squads)
+		})
+		if err != nil {
+			s.record(ctx, "grace", "Не удалось выдать доступ после окончания", map[string]any{"error": err.Error(), "user_id": candidate.ID})
+		}
+	}
+}
+
+func (s *Server) provisionExpiredAccess(ctx context.Context, user *store.User, sourceExpireAt time.Time, days int, squads []string) error {
+	client, err := s.remna(ctx)
+	if err != nil || !client.Configured() {
+		_ = s.Store.ReleaseSubscriptionGrace(context.Background(), user.ID, sourceExpireAt)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("Remnawave не настроен")
+	}
+	remote, err := client.UserByTelegram(ctx, user.TelegramID)
+	if err != nil || remote == nil {
+		_ = s.Store.ReleaseSubscriptionGrace(context.Background(), user.ID, sourceExpireAt)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("подписка Remnawave не найдена")
+	}
+	expireAt := time.Now().UTC().Add(time.Duration(days) * 24 * time.Hour)
+	status := "ACTIVE"
+	internal := append([]string(nil), squads...)
+	external := ""
+	updated, err := client.UpdateUser(ctx, remote, remnawave.Entitlement{Status: &status, ExpireAt: &expireAt, InternalSquads: &internal, ExternalSquadUUID: &external})
+	if err != nil {
+		_ = s.Store.ReleaseSubscriptionGrace(context.Background(), user.ID, sourceExpireAt)
+		return err
+	}
+	user.SubscriptionStatus = status
+	user.ExpiresAt = &expireAt
+	syncRemote(user, updated)
+	if user.ExpiresAt == nil || user.ExpiresAt.Before(expireAt.Add(-time.Minute)) {
+		user.ExpiresAt = &expireAt
+	}
+	if err = s.Store.CompleteSubscriptionGrace(ctx, *user, sourceExpireAt, *user.ExpiresAt); err != nil {
+		// The panel was already changed. Keep the pending claim so another pass cannot extend access twice.
+		return err
+	}
+	s.sendContentMessage(ctx, user.TelegramID, "grace_access_message", "<b>Временный доступ активирован</b>\n\nДоступ сохранён ещё на <b>{days}</b> дн.", map[string]string{"days": strconv.Itoa(days)}, nil)
+	s.publishAccount(user.ID)
+	return nil
 }
 
 func (s *Server) recoverBroadcasts(ctx context.Context) {

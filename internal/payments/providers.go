@@ -165,5 +165,10 @@ func (p *Provider) Test(ctx context.Context, kind string, cfg map[string]any) er
 		}
 		return nil
 	}
+	for _, provider := range AlternativeProviders {
+		if provider == kind {
+			return validateAlternativeConfig(kind, cfg)
+		}
+	}
 	return fmt.Errorf("unknown provider %s", strconv.Quote(kind))
 }

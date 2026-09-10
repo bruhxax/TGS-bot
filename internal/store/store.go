@@ -72,10 +72,12 @@ CREATE TABLE IF NOT EXISTS payments (
  amount_kopecks BIGINT NOT NULL, promo_code VARCHAR(64) NOT NULL DEFAULT '', snapshot JSONB NOT NULL DEFAULT '{}'::jsonb,
  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), paid_at TIMESTAMPTZ
 );
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS merchant_order_id BIGSERIAL;
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS entitlement JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE payments ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS payments_user_idx ON payments(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS payments_provider_idx ON payments(provider_payment_id);
+CREATE UNIQUE INDEX IF NOT EXISTS payments_merchant_order_idx ON payments(merchant_order_id);
 CREATE TABLE IF NOT EXISTS promo_codes (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), code VARCHAR(64) UNIQUE NOT NULL, discount_percent INT NOT NULL DEFAULT 0,
  max_uses INT NOT NULL DEFAULT 0, uses INT NOT NULL DEFAULT 0, active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -101,6 +103,12 @@ CREATE TABLE IF NOT EXISTS admin_audit (
  target_user_id BIGINT REFERENCES users(id), action VARCHAR(64) NOT NULL, reason TEXT NOT NULL DEFAULT '',
  details JSONB NOT NULL DEFAULT '{}'::jsonb, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS subscription_grace_delivery (
+ user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE, source_expire_at TIMESTAMPTZ NOT NULL,
+ grace_expire_at TIMESTAMPTZ, applied_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ PRIMARY KEY(user_id,source_expire_at)
+);
+CREATE INDEX IF NOT EXISTS subscription_grace_expire_idx ON subscription_grace_delivery(user_id,grace_expire_at) WHERE grace_expire_at IS NOT NULL;
 CREATE TABLE IF NOT EXISTS broadcasts (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), admin_user_id BIGINT NOT NULL REFERENCES users(id), text TEXT NOT NULL,
  buttons JSONB NOT NULL DEFAULT '[]'::jsonb, status VARCHAR(20) NOT NULL DEFAULT 'draft', sent_count INT NOT NULL DEFAULT 0,
@@ -121,6 +129,9 @@ CREATE TABLE IF NOT EXISTS broadcast_deliveries (
 var DefaultSettings = map[string]map[string]any{
 	"content": {
 		"brand": "TGS VPN", "logo_url": "", "connect_button": "Подключиться", "renew_button": "Продлить", "support_welcome": "Опишите вопрос — поддержка ответит в этом чате.",
+		"no_subscription_title": "Подписки нету", "subscription_expired_title": "Подписка закончилась", "buy_subscription_button": "Купить подписку", "traffic_used_label": "Использовано",
+		"support_create_button": "Создать тикет", "support_tickets_title": "Ваши тикеты", "support_admin_title": "Все тикеты", "support_admin_hint": "Новые сообщения появляются автоматически", "support_empty": "Открытых тикетов нет",
+		"connect_title": "Подключение", "connect_hint": "Выберите устройство и приложение — подписка добавится в клиент одним нажатием.", "connect_recommended": "Рекомендуем", "connect_open_button": "Добавить подписку", "connect_install_button": "Установить", "connect_copy_button": "Скопировать ссылку", "connect_empty": "Для этого устройства клиенты пока не добавлены",
 		"start_title": "Добро пожаловать в TGS VPN", "start_text": "Управляйте подпиской, подключением и поддержкой в одном приложении.", "start_message": "",
 		"trial_button": "Бесплатный период", "trial_button_style": "success", "trial_button_emoji_id": "",
 		"cabinet_button": "Личный кабинет", "cabinet_button_style": "primary", "cabinet_button_emoji_id": "",
@@ -133,24 +144,40 @@ var DefaultSettings = map[string]map[string]any{
 		"admin_only_message":            "Команда доступна только администратору.",
 		"broadcast_prompt_message":      "Отправьте следующим сообщением материал для рассылки. Фото, форматирование и премиум-эмодзи сохранятся.",
 		"broadcast_draft_error_message": "Не удалось создать черновик.", "broadcast_save_error_message": "Не удалось сохранить сообщение. Попробуйте ещё раз.",
-		"broadcast_preview_error_message": "Сообщение сохранено, но предпросмотр не создался. Нажмите «Изменить» в Mini App и повторите.",
-		"broadcast_edit_message":          "Отправьте новый вариант одним сообщением.",
-		"broadcast_confirmed_message":     "Готово. Теперь добавьте кнопки, выполните тест и запустите рассылку в Mini App.",
-		"broadcast_start_error_message":   "Рассылка не запущена: не удалось получить пользователей.",
-		"broadcast_complete_message":      "Рассылка завершена. Доставлено: <b>{sent}</b>, ошибок: <b>{failed}</b>.",
-		"trial_admin_message":             "<b>Активирован пробный период</b>\n{name} · <code>{id}</code>",
-		"new_ticket_admin_message":        "<b>Новый тикет</b>\n{subject}\n{name} · <code>{id}</code>",
-		"ticket_message_admin_message":    "Новое сообщение в тикете «<b>{subject}</b>».",
-		"payment_admin_message":           "<b>Новая оплата</b>\n{name} · {amount} ₽ · {provider}",
+		"broadcast_preview_error_message":  "Сообщение сохранено, но предпросмотр не создался. Нажмите «Изменить» в Mini App и повторите.",
+		"broadcast_edit_message":           "Отправьте новый вариант одним сообщением.",
+		"broadcast_confirmed_message":      "Готово. Теперь добавьте кнопки, выполните тест и запустите рассылку в Mini App.",
+		"broadcast_start_error_message":    "Рассылка не запущена: не удалось получить пользователей.",
+		"broadcast_complete_message":       "Рассылка завершена. Доставлено: <b>{sent}</b>, ошибок: <b>{failed}</b>.",
+		"trial_admin_message":              "<b>Активирован пробный период</b>\n{name} · <code>{id}</code>",
+		"new_ticket_admin_message":         "<b>Новый тикет</b>\n{subject}\n{name} · <code>{id}</code>",
+		"ticket_message_admin_message":     "Новое сообщение в тикете «<b>{subject}</b>».",
+		"payment_admin_message":            "<b>Новая оплата</b>\n{name} · {amount} ₽ · {provider}",
+		"grace_access_message":             "<b>Временный доступ активирован</b>\n\nОсновная подписка закончилась. Доступ сохранён ещё на <b>{days}</b> дн.\n\nПродлите подписку, чтобы вернуть полный доступ.",
+		"subscription_rebound_old_message": "Подписка перенесена на другой Telegram-аккаунт администратором.",
+		"subscription_rebound_new_message": "<b>Подписка привязана</b>\nТеперь она доступна в вашем Telegram-аккаунте.",
 	},
-	"features":     {"trial": true, "server_status": true, "devices": true, "payments": true, "referrals": true, "promo_codes": true, "support": true},
-	"trial":        {"enabled": true, "days": float64(3), "traffic_gb": float64(10), "device_limit": float64(1), "internal_squads": []any{}, "external_squad_uuid": ""},
-	"integrations": {"remnawave": map[string]any{"enabled": false, "url": "", "token": "", "webhook_secret": ""}, "yookassa": map[string]any{"enabled": false, "shop_id": "", "secret_key": "", "email": ""}, "cryptobot": map[string]any{"enabled": false, "token": "", "testnet": false}, "notifications": map[string]any{"enabled": false, "bot_token": "", "chat_id": ""}},
-	"theme":        {"template": "telegram", "accent": "#2aabee", "background": "#111315", "surface": "#1c1f22", "surface_alt": "#24282d", "text": "#ffffff", "muted": "#8f969e"},
-	"system":       {"referral_days": float64(7), "referral_traffic_gb": float64(10), "reward_after_payment": true},
-	"emergency":    {"enabled": false, "message": "Сервис временно недоступен. Мы уже работаем над восстановлением."},
-	"language":     {"default": "ru"},
-	"more_order":   {"items": []any{"servers", "devices", "payments", "referral"}},
+	"features": {"trial": true, "server_status": true, "devices": true, "payments": true, "referrals": true, "promo_codes": true, "support": true},
+	"trial":    {"enabled": true, "days": float64(3), "traffic_gb": float64(10), "device_limit": float64(1), "internal_squads": []any{}, "external_squad_uuid": ""},
+	"integrations": {
+		"remnawave":     map[string]any{"enabled": false, "url": "", "token": "", "webhook_secret": ""},
+		"yookassa":      map[string]any{"enabled": false, "shop_id": "", "secret_key": "", "email": ""},
+		"cryptobot":     map[string]any{"enabled": false, "token": "", "testnet": false},
+		"lava":          map[string]any{"enabled": false, "shop_id": "", "secret_key": "", "additional_key": ""},
+		"wata":          map[string]any{"enabled": false, "access_token": "", "api_url": "https://api.wata.pro/api/h2h"},
+		"platega":       map[string]any{"enabled": false, "merchant_id": "", "secret_key": "", "api_url": "https://app.platega.io"},
+		"freekassa":     map[string]any{"enabled": false, "shop_id": "", "secret_word": "", "secret_word2": ""},
+		"heleket":       map[string]any{"enabled": false, "merchant_id": "", "api_key": "", "api_url": "https://api.heleket.com"},
+		"pally":         map[string]any{"enabled": false, "shop_id": "", "api_token": "", "api_url": "https://pal24.pro"},
+		"notifications": map[string]any{"enabled": false, "bot_token": "", "chat_id": ""},
+	},
+	"theme":      {"template": "telegram", "accent": "#2aabee", "background": "#111315", "surface": "#1c1f22", "surface_alt": "#24282d", "text": "#ffffff", "muted": "#8f969e"},
+	"system":     {"referral_days": float64(7), "referral_traffic_gb": float64(10), "reward_after_payment": true},
+	"emergency":  {"enabled": false, "message": "Сервис временно недоступен. Мы уже работаем над восстановлением."},
+	"language":   {"default": "ru"},
+	"more_order": {"items": []any{"servers", "devices", "payments", "referral"}},
+	"grace":      {"enabled": false, "days": float64(2), "internal_squads": []any{}},
+	"subpage":    {"include_builtins": true, "clients": []any{}},
 }
 
 var ThemeTemplates = map[string]map[string]any{
@@ -355,7 +382,7 @@ func (s *Store) DeleteTariff(ctx context.Context, id string) error {
 func scanPayment(scanner interface{ Scan(...any) error }) (Payment, error) {
 	var p Payment
 	var snapshotRaw, entitlementRaw []byte
-	err := scanner.Scan(&p.ID, &p.UserID, &p.TariffID, &p.Provider, &p.ProviderPaymentID, &p.Status, &p.AmountKopecks, &p.PromoCode, &snapshotRaw, &entitlementRaw, &p.CreatedAt, &p.PaidAt)
+	err := scanner.Scan(&p.ID, &p.MerchantOrderID, &p.UserID, &p.TariffID, &p.Provider, &p.ProviderPaymentID, &p.Status, &p.AmountKopecks, &p.PromoCode, &snapshotRaw, &entitlementRaw, &p.CreatedAt, &p.PaidAt)
 	if err == nil {
 		_ = json.Unmarshal(snapshotRaw, &p.Snapshot)
 		_ = json.Unmarshal(entitlementRaw, &p.Entitlement)
@@ -363,7 +390,7 @@ func scanPayment(scanner interface{ Scan(...any) error }) (Payment, error) {
 	return p, err
 }
 
-const paymentColumns = `id::text,user_id,COALESCE(tariff_id::text,''),provider,provider_payment_id,status,amount_kopecks,promo_code,snapshot,entitlement,created_at,paid_at`
+const paymentColumns = `id::text,merchant_order_id,user_id,COALESCE(tariff_id::text,''),provider,provider_payment_id,status,amount_kopecks,promo_code,snapshot,entitlement,created_at,paid_at`
 
 func (s *Store) CreatePayment(ctx context.Context, p Payment) (Payment, error) {
 	raw, _ := json.Marshal(p.Snapshot)
@@ -378,6 +405,9 @@ func (s *Store) Payment(ctx context.Context, id string) (Payment, error) {
 }
 func (s *Store) PaymentByProvider(ctx context.Context, id string) (Payment, error) {
 	return scanPayment(s.DB.QueryRowContext(ctx, `SELECT `+paymentColumns+` FROM payments WHERE provider_payment_id=$1`, id))
+}
+func (s *Store) PaymentByMerchantOrder(ctx context.Context, id int64) (Payment, error) {
+	return scanPayment(s.DB.QueryRowContext(ctx, `SELECT `+paymentColumns+` FROM payments WHERE merchant_order_id=$1`, id))
 }
 func (s *Store) PaymentsByUser(ctx context.Context, userID int64) ([]Payment, error) {
 	rows, e := s.DB.QueryContext(ctx, `SELECT `+paymentColumns+` FROM payments WHERE user_id=$1 ORDER BY created_at DESC LIMIT 100`, userID)
@@ -459,6 +489,127 @@ func (s *Store) WithUserLock(ctx context.Context, userID int64, fn func() error)
 	}
 	defer func() { _, _ = conn.ExecContext(context.Background(), `SELECT pg_advisory_unlock($1)`, userID) }()
 	return fn()
+}
+
+func (s *Store) ExpiredSubscriptionUsers(ctx context.Context) ([]User, error) {
+	rows, err := s.DB.QueryContext(ctx, `SELECT `+userColumns+` FROM users u
+		WHERE u.is_blocked=FALSE AND u.expires_at IS NOT NULL AND u.expires_at<=NOW()
+		  AND u.subscription_url<>'' AND u.subscription_status IN ('ACTIVE','EXPIRED')
+		  AND NOT EXISTS (SELECT 1 FROM subscription_grace_delivery g WHERE g.user_id=u.id AND g.grace_expire_at IS NULL)
+		ORDER BY u.expires_at LIMIT 100`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []User{}
+	for rows.Next() {
+		u, scanErr := scanUser(rows)
+		if scanErr != nil {
+			return nil, scanErr
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) ClaimSubscriptionGrace(ctx context.Context, userID int64, sourceExpireAt time.Time) (bool, error) {
+	result, err := s.DB.ExecContext(ctx, `INSERT INTO subscription_grace_delivery(user_id,source_expire_at)
+		SELECT $1,$2 WHERE NOT EXISTS (
+			SELECT 1 FROM subscription_grace_delivery
+			WHERE user_id=$1 AND (grace_expire_at IS NULL OR grace_expire_at BETWEEN $2::timestamptz-INTERVAL '5 seconds' AND $2::timestamptz+INTERVAL '5 seconds')
+		) ON CONFLICT(user_id,source_expire_at) DO NOTHING`, userID, sourceExpireAt)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count == 1, err
+}
+
+func (s *Store) CompleteSubscriptionGrace(ctx context.Context, user User, sourceExpireAt, graceExpireAt time.Time) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE subscription_grace_delivery SET grace_expire_at=$3,applied_at=NOW()
+		WHERE user_id=$1 AND source_expire_at=$2 AND grace_expire_at IS NULL`, user.ID, sourceExpireAt, graceExpireAt)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil || count != 1 {
+		return fmt.Errorf("заявка временного доступа не найдена")
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE users SET remnawave_user_id=$2,remnawave_user_uuid=$3,remnawave_username=$4,
+		subscription_url=$5,subscription_status=$6,expires_at=$7,traffic_limit_bytes=$8,traffic_used_bytes=$9,device_limit=$10 WHERE id=$1`,
+		user.ID, user.RemnawaveUserID, user.RemnawaveUserUUID, user.RemnawaveUsername, user.SubscriptionURL, user.SubscriptionStatus,
+		graceExpireAt, user.TrafficLimitBytes, user.TrafficUsedBytes, user.DeviceLimit)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) ReleaseSubscriptionGrace(ctx context.Context, userID int64, sourceExpireAt time.Time) error {
+	_, err := s.DB.ExecContext(ctx, `DELETE FROM subscription_grace_delivery WHERE user_id=$1 AND source_expire_at=$2 AND grace_expire_at IS NULL`, userID, sourceExpireAt)
+	return err
+}
+
+var (
+	ErrSubscriptionTransferSame   = errors.New("нельзя перенести подписку на тот же Telegram ID")
+	ErrSubscriptionTransferSource = errors.New("у исходного пользователя нет подписки")
+	ErrSubscriptionTransferTarget = errors.New("у нового Telegram ID уже есть подписка")
+)
+
+func (s *Store) TransferSubscription(ctx context.Context, adminID, sourceTelegramID, targetTelegramID int64, reason string) (User, User, error) {
+	if sourceTelegramID == targetTelegramID {
+		return User{}, User{}, ErrSubscriptionTransferSame
+	}
+	tx, err := s.DB.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	if err != nil {
+		return User{}, User{}, err
+	}
+	defer tx.Rollback()
+	source, err := scanUser(tx.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE telegram_id=$1 FOR UPDATE`, sourceTelegramID))
+	if err != nil {
+		return User{}, User{}, err
+	}
+	target, err := scanUser(tx.QueryRowContext(ctx, `SELECT `+userColumns+` FROM users WHERE telegram_id=$1 FOR UPDATE`, targetTelegramID))
+	if err != nil {
+		return User{}, User{}, err
+	}
+	if source.RemnawaveUserID == nil && source.RemnawaveUserUUID == "" && source.SubscriptionURL == "" {
+		return User{}, User{}, ErrSubscriptionTransferSource
+	}
+	if target.RemnawaveUserID != nil || target.RemnawaveUserUUID != "" || target.SubscriptionURL != "" {
+		return User{}, User{}, ErrSubscriptionTransferTarget
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE users SET remnawave_user_id=$2,remnawave_user_uuid=$3,remnawave_username=$4,
+		subscription_url=$5,subscription_status=$6,expires_at=$7,traffic_limit_bytes=$8,traffic_used_bytes=$9,device_limit=$10 WHERE id=$1`,
+		target.ID, source.RemnawaveUserID, source.RemnawaveUserUUID, source.RemnawaveUsername, source.SubscriptionURL,
+		source.SubscriptionStatus, source.ExpiresAt, source.TrafficLimitBytes, source.TrafficUsedBytes, source.DeviceLimit)
+	if err != nil {
+		return User{}, User{}, err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE users SET remnawave_user_id=NULL,remnawave_user_uuid='',remnawave_username='',subscription_url='',
+		subscription_status='INACTIVE',expires_at=NULL,traffic_limit_bytes=0,traffic_used_bytes=0,device_limit=1 WHERE id=$1`, source.ID)
+	if err != nil {
+		return User{}, User{}, err
+	}
+	details, _ := json.Marshal(map[string]any{"old_telegram_id": sourceTelegramID, "new_telegram_id": targetTelegramID})
+	_, err = tx.ExecContext(ctx, `INSERT INTO admin_audit(admin_user_id,target_user_id,action,reason,details) VALUES($1,$2,'transfer_subscription',$3,$4)`, adminID, target.ID, reason, details)
+	if err != nil {
+		return User{}, User{}, err
+	}
+	if err = tx.Commit(); err != nil {
+		return User{}, User{}, err
+	}
+	source, err = s.UserByID(ctx, source.ID)
+	if err != nil {
+		return User{}, User{}, err
+	}
+	target, err = s.UserByID(ctx, target.ID)
+	return source, target, err
 }
 
 func (s *Store) PromoByCode(ctx context.Context, code string) (Promo, error) {

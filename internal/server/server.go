@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +29,7 @@ func (s *Server) Handler(static fs.FS) http.Handler {
 	mux.HandleFunc("POST /api/auth/telegram", s.authTelegram)
 	mux.HandleFunc("POST /api/webhooks/yookassa", s.webhookYooKassa)
 	mux.HandleFunc("POST /api/webhooks/cryptobot", s.webhookCryptoBot)
+	mux.HandleFunc("POST /api/webhooks/payments/{provider}", s.webhookAlternativePayment)
 	mux.HandleFunc("POST /api/webhooks/remnawave", s.webhookRemnawave)
 
 	mux.Handle("GET /api/bootstrap", s.auth(http.HandlerFunc(s.bootstrap)))
@@ -203,6 +206,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	emergency, _ := s.Store.Setting(r.Context(), "emergency")
 	more, _ := s.Store.Setting(r.Context(), "more_order")
 	integrations, _ := s.Store.Setting(r.Context(), "integrations")
+	subpage, _ := s.Store.Setting(r.Context(), "subpage")
 	tariffs, _ := s.Store.Tariffs(r.Context(), false)
 	tickets, _ := s.Store.Tickets(r.Context(), &u.ID)
 	history, _ := s.Store.PaymentsByUser(r.Context(), u.ID)
@@ -220,8 +224,17 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	sys["link"] = "https://t.me/" + s.BotUsername + "?start=" + u.ReferralCode
 	userDTO := publicUser(*u)
 	object(userDTO["subscription"])["connected_devices"] = s.connectedDeviceCount(r.Context(), *u)
-	methods := []map[string]any{{"id": "yookassa", "name": "ЮKassa", "enabled": boolean(object(integrations["yookassa"])["enabled"])}, {"id": "cryptobot", "name": "CryptoBot", "enabled": boolean(object(integrations["cryptobot"])["enabled"])}}
-	writeJSON(w, 200, map[string]any{"user": userDTO, "content": content, "features": features, "trial": trial, "theme": theme, "language": language, "emergency": emergency, "more_order": more["items"], "tariffs": tds, "tickets": tickets, "payments": pds, "referral": sys, "payment_methods": methods})
+	definitions := []struct{ id, name, description string }{
+		{"yookassa", "ЮKassa", "Банковская карта или СБП"}, {"cryptobot", "CryptoBot", "Криптовалюта через Telegram"},
+		{"lava", "LAVA", "Платёжная форма LAVA Business"}, {"wata", "WATA", "Карты и СБП через WATA"},
+		{"platega", "Platega", "Платёжная форма Platega"}, {"freekassa", "FreeKassa", "Платёжная форма FreeKassa"},
+		{"heleket", "Heleket", "Криптовалютная платёжная форма"}, {"pally", "Pally", "Карты и СБП через Pally"},
+	}
+	methods := make([]map[string]any, 0, len(definitions))
+	for _, item := range definitions {
+		methods = append(methods, map[string]any{"id": item.id, "name": item.name, "description": item.description, "enabled": boolean(object(integrations[item.id])["enabled"])})
+	}
+	writeJSON(w, 200, map[string]any{"user": userDTO, "content": content, "features": features, "trial": trial, "theme": theme, "language": language, "emergency": emergency, "more_order": more["items"], "tariffs": tds, "tickets": tickets, "payments": pds, "referral": sys, "payment_methods": methods, "subpage": subpage})
 }
 
 func (s *Server) trial(w http.ResponseWriter, r *http.Request) {
@@ -399,7 +412,22 @@ func (s *Server) checkout(w http.ResponseWriter, r *http.Request) {
 	case "cryptobot":
 		providerID, payURL, err = s.Payments.CryptoBotCreate(r.Context(), object(integrations["cryptobot"]), p.ID, amount, description)
 	default:
-		err = fmt.Errorf("неизвестный способ оплаты")
+		known := false
+		for _, name := range payments.AlternativeProviders {
+			if body.Provider == name {
+				known = true
+				break
+			}
+		}
+		if !known {
+			err = fmt.Errorf("неизвестный способ оплаты")
+			break
+		}
+		providerID, payURL, err = s.Payments.CreateAlternative(r.Context(), body.Provider, object(integrations[body.Provider]), payments.CreateRequest{
+			MerchantOrderID: p.MerchantOrderID, AmountKopecks: amount, Description: description,
+			ReturnURL: s.Config.MiniAppURL("") + "?payment=" + p.ID, WebhookBaseURL: s.Config.PublicBaseURL,
+			TelegramID: current(r).TelegramID, Username: current(r).Username,
+		})
 	}
 	if err != nil {
 		_ = s.Store.FailPayment(r.Context(), p.ID)
@@ -551,6 +579,78 @@ func (s *Server) webhookCryptoBot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, 200, map[string]any{"ok": true})
+}
+
+func (s *Server) webhookAlternativePayment(w http.ResponseWriter, r *http.Request) {
+	provider := strings.ToLower(strings.TrimSpace(r.PathValue("provider")))
+	known := false
+	for _, name := range payments.AlternativeProviders {
+		if provider == name {
+			known = true
+			break
+		}
+	}
+	if !known {
+		writeError(w, http.StatusNotFound, "unknown provider")
+		return
+	}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "bad body")
+		return
+	}
+	form := url.Values{}
+	if provider == "freekassa" || provider == "pally" {
+		form, err = url.ParseQuery(string(raw))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "bad form")
+			return
+		}
+	}
+	settings, _ := s.Store.Setting(r.Context(), "integrations")
+	result, err := s.Payments.ParseAlternativeWebhook(r.Context(), provider, object(settings[provider]), r.Header, raw, form)
+	if err != nil {
+		s.record(r.Context(), provider, "Webhook платежа отклонён", map[string]any{"error": err.Error()})
+		writeError(w, http.StatusUnauthorized, "invalid webhook")
+		return
+	}
+	var payment store.Payment
+	if result.MerchantOrderID > 0 {
+		payment, err = s.Store.PaymentByMerchantOrder(r.Context(), result.MerchantOrderID)
+	} else if result.ExternalID != "" {
+		payment, err = s.Store.PaymentByProvider(r.Context(), result.ExternalID)
+	} else {
+		err = sql.ErrNoRows
+	}
+	if err != nil || payment.Provider != provider {
+		writeError(w, http.StatusNotFound, "payment not found")
+		return
+	}
+	if strings.TrimSpace(result.Currency) != "" && !strings.EqualFold(result.Currency, "RUB") {
+		writeError(w, http.StatusBadRequest, "currency mismatch")
+		return
+	}
+	if result.Amount > 0 && math.Abs(result.Amount-float64(payment.AmountKopecks)/100) > 0.011 {
+		s.record(r.Context(), provider, "Сумма webhook не совпала с платежом", map[string]any{"payment_id": payment.ID})
+		writeError(w, http.StatusBadRequest, "amount mismatch")
+		return
+	}
+	if result.Paid {
+		if err = s.completePayment(r.Context(), payment); err != nil {
+			s.record(r.Context(), "payments", "Не удалось выдать оплаченную подписку", map[string]any{"error": err.Error(), "payment_id": payment.ID})
+			writeError(w, http.StatusBadGateway, "provisioning failed")
+			return
+		}
+	} else if result.Cancelled {
+		_ = s.Store.FailPayment(r.Context(), payment.ID)
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if provider == "freekassa" || provider == "pally" {
+		_, _ = w.Write([]byte("YES"))
+	} else {
+		_, _ = w.Write([]byte("OK"))
+	}
 }
 func (s *Server) webhookRemnawave(w http.ResponseWriter, r *http.Request) {
 	settings, _ := s.Store.Setting(r.Context(), "integrations")

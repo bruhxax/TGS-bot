@@ -202,6 +202,26 @@ func (c *Client) UpdateStatus(ctx context.Context, user map[string]any, status s
 	return out, nil
 }
 
+func (c *Client) RebindTelegram(ctx context.Context, user map[string]any, telegramID int64, username string) (map[string]any, error) {
+	body := map[string]any{"telegramId": telegramID}
+	if strings.TrimSpace(username) != "" {
+		body["username"] = strings.TrimSpace(username)
+	}
+	if id, ok := numberInt64(user["id"]); ok {
+		body["id"] = id
+	} else if uuid := strings.TrimSpace(fmt.Sprint(user["uuid"])); uuid != "" && uuid != "<nil>" {
+		body["uuid"] = uuid
+	} else {
+		return nil, fmt.Errorf("у пользователя Remnawave нет идентификатора")
+	}
+	data, err := c.request(ctx, http.MethodPatch, "/api/users", nil, body)
+	if err != nil {
+		return nil, err
+	}
+	out, _ := data.(map[string]any)
+	return out, nil
+}
+
 func (c *Client) Nodes(ctx context.Context) ([]map[string]any, error) {
 	return c.list(ctx, "/api/nodes", "nodes")
 }

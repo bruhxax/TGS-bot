@@ -2,8 +2,10 @@ package server
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -12,9 +14,10 @@ import (
 	"tgs-bot/internal/store"
 )
 
-var settingKeys = map[string]bool{"content": true, "features": true, "trial": true, "integrations": true, "theme": true, "system": true, "emergency": true, "language": true, "more_order": true}
+var settingKeys = map[string]bool{"content": true, "features": true, "trial": true, "grace": true, "integrations": true, "subpage": true, "theme": true, "system": true, "emergency": true, "language": true, "more_order": true}
 var colorPattern = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
-var secretSettingKeys = map[string]bool{"token": true, "secret_key": true, "bot_token": true, "webhook_secret": true}
+var clientIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{1,31}$`)
+var secretSettingKeys = map[string]bool{"token": true, "secret_key": true, "bot_token": true, "webhook_secret": true, "additional_key": true, "access_token": true, "secret_word": true, "secret_word2": true, "api_key": true, "api_token": true}
 
 const maskedSecret = "••••••••"
 
@@ -30,6 +33,7 @@ func (s *Server) registerAdmin(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/admin/tariffs/{id}", s.admin(http.HandlerFunc(s.adminDeleteTariff)))
 	mux.Handle("GET /api/admin/users", s.admin(http.HandlerFunc(s.adminUsers)))
 	mux.Handle("PATCH /api/admin/users/{id}", s.admin(http.HandlerFunc(s.adminUpdateUser)))
+	mux.Handle("POST /api/admin/subscriptions/rebind", s.admin(http.HandlerFunc(s.adminRebindSubscription)))
 	mux.Handle("GET /api/admin/promos", s.admin(http.HandlerFunc(s.adminPromos)))
 	mux.Handle("POST /api/admin/promos", s.admin(http.HandlerFunc(s.adminCreatePromo)))
 	mux.Handle("DELETE /api/admin/promos/{id}", s.admin(http.HandlerFunc(s.adminDeletePromo)))
@@ -142,6 +146,23 @@ func (s *Server) adminSaveSetting(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if key == "grace" {
+		days := number(body.Value["days"], 0)
+		if days < 1 || days > 365 {
+			writeError(w, 400, "Срок доступа: от 1 до 365 дней")
+			return
+		}
+		if boolean(body.Value["enabled"]) && len(stringsList(body.Value["internal_squads"])) == 0 {
+			writeError(w, 400, "Выберите хотя бы один внутренний сквад")
+			return
+		}
+	}
+	if key == "subpage" {
+		if err := validateSubpageSetting(body.Value); err != nil {
+			writeError(w, 400, err.Error())
+			return
+		}
+	}
 	if key == "content" {
 		for _, prefix := range []string{"trial_button", "cabinet_button", "support_button"} {
 			style := text(body.Value[prefix+"_style"])
@@ -219,10 +240,11 @@ func (s *Server) adminTestIntegration(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, 200, map[string]any{"ok": true, "message": fmt.Sprintf("Remnawave отвечает, нод: %d", len(rows))})
 			return
 		}
-	case "yookassa", "cryptobot":
+	case "yookassa", "cryptobot", "lava", "wata", "platega", "freekassa", "heleket", "pally":
 		err = s.Payments.Test(r.Context(), kind, object(settings[kind]))
 		if err == nil {
-			writeJSON(w, 200, map[string]any{"ok": true, "message": map[string]string{"yookassa": "ЮKassa отвечает", "cryptobot": "CryptoBot отвечает"}[kind]})
+			messages := map[string]string{"yookassa": "ЮKassa отвечает", "cryptobot": "CryptoBot отвечает", "lava": "Настройки LAVA заполнены", "wata": "Настройки WATA заполнены", "platega": "Настройки Platega заполнены", "freekassa": "Настройки FreeKassa заполнены", "heleket": "Настройки Heleket заполнены", "pally": "Настройки Pally заполнены"}
+			writeJSON(w, 200, map[string]any{"ok": true, "message": messages[kind]})
 			return
 		}
 	default:
@@ -231,6 +253,76 @@ func (s *Server) adminTestIntegration(w http.ResponseWriter, r *http.Request) {
 	}
 	s.record(r.Context(), kind, "Проверка интеграции не пройдена", map[string]any{"error": err.Error()})
 	writeError(w, 502, "Проверка не пройдена")
+}
+
+func validateSubpageSetting(value map[string]any) error {
+	raw, ok := value["clients"].([]any)
+	if !ok && value["clients"] != nil {
+		return fmt.Errorf("некорректный список клиентов")
+	}
+	if len(raw) > 24 {
+		return fmt.Errorf("можно добавить не больше 24 клиентов")
+	}
+	allowedPlatforms := map[string]bool{"ios": true, "android": true, "macos": true, "windows": true, "android-tv": true, "apple-tv": true}
+	seen := map[string]bool{}
+	enabled := boolean(value["include_builtins"])
+	featured := false
+	for _, item := range raw {
+		client := object(item)
+		id := strings.ToLower(strings.TrimSpace(text(client["id"])))
+		name := strings.TrimSpace(text(client["name"]))
+		scheme := strings.TrimSpace(text(client["scheme"]))
+		if !clientIDPattern.MatchString(id) || seen[id] || id == "happ" || id == "incy" {
+			return fmt.Errorf("некорректный или повторяющийся ID клиента")
+		}
+		seen[id] = true
+		client["id"] = id
+		client["name"] = name
+		client["scheme"] = scheme
+		if name == "" || len([]rune(name)) > 60 {
+			return fmt.Errorf("название клиента: 1–60 символов")
+		}
+		if len(scheme) > 256 || !strings.Contains(scheme, "://") || strings.ContainsAny(scheme, " \t\r\n") {
+			return fmt.Errorf("укажите корректную схему клиента, например happ://add/")
+		}
+		parsed, err := url.Parse(scheme + "https://example.com/subscription")
+		blocked := map[string]bool{"http": true, "https": true, "javascript": true, "data": true, "file": true, "blob": true}
+		if err != nil || parsed.Scheme == "" || blocked[strings.ToLower(parsed.Scheme)] {
+			return fmt.Errorf("схема клиента небезопасна")
+		}
+		installURL := strings.TrimSpace(text(client["install_url"]))
+		if installURL != "" {
+			parsedInstall, parseErr := url.ParseRequestURI(installURL)
+			if parseErr != nil || (parsedInstall.Scheme != "https" && parsedInstall.Scheme != "http") || parsedInstall.Host == "" {
+				return fmt.Errorf("укажите корректную ссылку установки")
+			}
+		}
+		if !boolean(client["enabled"]) {
+			continue
+		}
+		enabled = true
+		if boolean(client["featured"]) {
+			if featured {
+				return fmt.Errorf("рекомендуемым может быть только один клиент")
+			}
+			featured = true
+		}
+		if !boolean(client["all_platforms"]) {
+			platforms := stringsList(client["platforms"])
+			if len(platforms) == 0 {
+				return fmt.Errorf("выберите устройства для клиента %s", name)
+			}
+			for _, platform := range platforms {
+				if !allowedPlatforms[platform] {
+					return fmt.Errorf("неизвестный тип устройства")
+				}
+			}
+		}
+	}
+	if !enabled {
+		return fmt.Errorf("оставьте хотя бы один доступный клиент")
+	}
+	return nil
 }
 
 func (s *Server) adminTariffs(w http.ResponseWriter, r *http.Request) {
@@ -430,6 +522,94 @@ func (s *Server) adminUpdateUser(w http.ResponseWriter, r *http.Request) {
 	target, _ = s.Store.UserByID(r.Context(), id)
 	s.publishAccount(target.ID)
 	writeJSON(w, 200, adminUserDTO(target))
+}
+
+func (s *Server) adminRebindSubscription(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		SourceTelegramID int64  `json:"source_telegram_id"`
+		TargetTelegramID int64  `json:"target_telegram_id"`
+		Reason           string `json:"reason"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	body.Reason = strings.TrimSpace(body.Reason)
+	if body.SourceTelegramID <= 0 || body.TargetTelegramID <= 0 {
+		writeError(w, 400, "Укажите оба Telegram ID")
+		return
+	}
+	if len([]rune(body.Reason)) > 500 {
+		writeError(w, 400, "Причина слишком длинная")
+		return
+	}
+	source, err := s.Store.UserByTelegram(r.Context(), body.SourceTelegramID)
+	if err != nil {
+		writeError(w, 404, "Исходный пользователь не найден")
+		return
+	}
+	target, err := s.Store.UserByTelegram(r.Context(), body.TargetTelegramID)
+	if err != nil {
+		writeError(w, 404, "Новый пользователь должен сначала открыть бота и отправить /start")
+		return
+	}
+	if source.TelegramID == target.TelegramID {
+		writeError(w, 400, store.ErrSubscriptionTransferSame.Error())
+		return
+	}
+	if source.RemnawaveUserID == nil && source.RemnawaveUserUUID == "" && source.SubscriptionURL == "" {
+		writeError(w, 409, store.ErrSubscriptionTransferSource.Error())
+		return
+	}
+	if target.RemnawaveUserID != nil || target.RemnawaveUserUUID != "" || target.SubscriptionURL != "" {
+		writeError(w, 409, store.ErrSubscriptionTransferTarget.Error())
+		return
+	}
+	client, err := s.remna(r.Context())
+	if err != nil || !client.Configured() {
+		writeError(w, 503, "Remnawave не настроен")
+		return
+	}
+	if existing, findErr := client.UserByTelegram(r.Context(), target.TelegramID); findErr != nil {
+		writeError(w, 502, "Не удалось проверить новый Telegram ID в Remnawave")
+		return
+	} else if existing != nil {
+		writeError(w, 409, "В Remnawave у нового Telegram ID уже есть подписка")
+		return
+	}
+	remote, err := client.UserByTelegram(r.Context(), source.TelegramID)
+	if err != nil || remote == nil {
+		writeError(w, 502, "Исходная подписка не найдена в Remnawave")
+		return
+	}
+	previousUsername := text(remote["username"])
+	updated, err := client.RebindTelegram(r.Context(), remote, target.TelegramID, fmt.Sprintf("tgs_%d", target.TelegramID))
+	if err != nil {
+		s.record(r.Context(), "remnawave", "Не удалось перепривязать подписку", map[string]any{"error": err.Error(), "source_user_id": source.ID, "target_user_id": target.ID})
+		writeError(w, 502, "Remnawave не перепривязал подписку")
+		return
+	}
+	sourceAfter, targetAfter, err := s.Store.TransferSubscription(r.Context(), current(r).ID, source.TelegramID, target.TelegramID, body.Reason)
+	if err != nil {
+		if _, rollbackErr := client.RebindTelegram(r.Context(), updated, source.TelegramID, previousUsername); rollbackErr != nil {
+			s.record(r.Context(), "remnawave", "Не удалось откатить перепривязку подписки", map[string]any{"error": rollbackErr.Error(), "source_user_id": source.ID})
+		}
+		switch {
+		case errors.Is(err, store.ErrSubscriptionTransferSame), errors.Is(err, store.ErrSubscriptionTransferSource), errors.Is(err, store.ErrSubscriptionTransferTarget):
+			writeError(w, 409, err.Error())
+		default:
+			writeError(w, 500, "Не удалось сохранить нового владельца подписки")
+		}
+		return
+	}
+	syncRemote(&targetAfter, updated)
+	if err = s.Store.UpdateSubscription(r.Context(), targetAfter); err != nil {
+		s.record(r.Context(), "admin", "Подписка перенесена, но локальные данные не синхронизированы", map[string]any{"error": err.Error(), "target_user_id": targetAfter.ID})
+	}
+	s.sendContentMessage(r.Context(), sourceAfter.TelegramID, "subscription_rebound_old_message", "Подписка перенесена на другой Telegram-аккаунт администратором.", nil, nil)
+	s.sendContentMessage(r.Context(), targetAfter.TelegramID, "subscription_rebound_new_message", "<b>Подписка привязана</b>\nТеперь она доступна в вашем Telegram-аккаунте.", nil, nil)
+	s.publishAccount(sourceAfter.ID)
+	s.publishAccount(targetAfter.ID)
+	writeJSON(w, 200, map[string]any{"ok": true, "source": adminUserDTO(sourceAfter), "target": adminUserDTO(targetAfter)})
 }
 
 func (s *Server) adminPromos(w http.ResponseWriter, r *http.Request) {

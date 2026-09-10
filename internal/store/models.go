@@ -46,6 +46,7 @@ type Tariff struct {
 
 type Payment struct {
 	ID                string         `json:"id"`
+	MerchantOrderID   int64          `json:"merchant_order_id"`
 	UserID            int64          `json:"user_id"`
 	TariffID          string         `json:"tariff_id"`
 	Provider          string         `json:"provider"`
