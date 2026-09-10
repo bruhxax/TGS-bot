@@ -17,13 +17,13 @@ const params = new URLSearchParams(location.search);
 const state = { token: sessionStorage.getItem('tgs_session') || '', data: null, page: params.get('page') || 'home', preview: isPreview, cache: {}, selectedTariffID: '', scrollPositions: {}, supportLoading: false };
 const tr = key => i18n[state.data?.language?.default || 'ru']?.[key] || i18n.ru[key] || key;
 
-let iconSpritePrefix = '/assets/icons.svg?v=20260910-v101';
+let iconSpritePrefix = '/assets/icons.svg?v=20260910-v102';
 const icon = name => `<svg class="icon${name === 'loader' ? ' icon-loader' : ''}" viewBox="0 0 24 24" aria-hidden="true"><use href="${iconSpritePrefix}#icon-${name}"></use></svg>`;
-const paymentLogo = provider => `<span class="payment-logo ${esc(provider)}" aria-hidden="true">${icon(`pay-${provider}`)}</span>`;
+const paymentLogo = provider => `<span class="payment-logo ${esc(provider)}" aria-hidden="true"><img src="/assets/payment-${esc(provider)}.jpg?v=20260910-v102" alt=""></span>`;
 
 async function loadIconSprite() {
   try {
-    const response = await fetch('/assets/icons.svg?v=20260910-v101', {cache:'force-cache'});
+    const response = await fetch('/assets/icons.svg?v=20260910-v102', {cache:'force-cache'});
     if (!response.ok) return;
     const parsed = new DOMParser().parseFromString(await response.text(), 'image/svg+xml');
     if (parsed.querySelector('parsererror') || !parsed.querySelector('symbol')) return;
@@ -275,8 +275,8 @@ function replaceTicket(ticket) {
   if(index>=0)rows[index]=ticket;else rows.unshift(ticket);
 }
 function ticketUserLine(ticket) {
-  const user=ticket.user||{}, telegram=user.username?`@${user.username}`:`Telegram ${user.telegram_id||ticket.user_id}`, panel=user.remnawave_username||`tgs_${user.telegram_id||ticket.user_id}`;
-  return `${user.first_name||'Пользователь'} · ${telegram} · ${panel}`;
+  const user=ticket.user||{}, telegram=user.username?`@${user.username}`:'@—', panel=user.remnawave_username||'—';
+  return `${telegram} · ${panel}`;
 }
 function ticketRow(ticket) {
   const last=ticket.messages?.[ticket.messages.length-1], adminLine=state.data.user.is_admin?`<small class="ticket-user-line">${esc(ticketUserLine(ticket))}</small>`:'';
@@ -297,7 +297,7 @@ function ticketPage(id) {
   const ticket = visibleTickets().find(t => t.id === id);
   if (!ticket) return `${detailHead('Тикет', 'support')}${empty('support','Тикет не найден')}`;
   const messages = ticket.messages || [];
-  const admin=state.data.user.is_admin, userInfo=admin?`<div class="ticket-user-context"><strong>${esc(ticket.user?.first_name||'Пользователь')}</strong><span>${ticket.user?.username?'@'+esc(ticket.user.username):`Telegram ${esc(ticket.user?.telegram_id||ticket.user_id)}`}</span><span>${esc(ticket.user?.remnawave_username||`tgs_${ticket.user?.telegram_id||ticket.user_id}`)}</span></div>`:'';
+  const admin=state.data.user.is_admin, userInfo=admin?`<div class="ticket-user-context"><span>${ticket.user?.username?'@'+esc(ticket.user.username):'@—'}</span><span>${esc(ticket.user?.remnawave_username||'—')}</span></div>`:'';
   const statusActions=admin?`<div class="ticket-status-actions"><button class="compact-button ${ticket.status==='open'?'accent':''}" data-ticket-status="${ticket.id}:open">Открыт</button><button class="compact-button ${ticket.status==='closed'?'accent':''}" data-ticket-status="${ticket.id}:closed">Закрыт</button></div>`:'';
   const compose=ticket.status!=='closed'||admin?`<form class="chat-compose" id="chat-form"><input name="text" maxlength="5000" aria-label="Сообщение" placeholder="Сообщение…" autocomplete="off"><button class="icon-button" aria-label="Отправить">${icon('send')}</button></form>`:'<p class="notice">Тикет закрыт</p>';
   return `<section class="ticket-layout">${detailHead(ticket.subject, 'support')}<div class="ticket-context">${userInfo}<div class="ticket-state"><span class="status ${esc(ticket.status)}">${statusLabel(ticket.status)}</span>${statusActions}</div></div><div class="chat" aria-label="Переписка с поддержкой">${ticketMessages(messages)}</div>${compose}</section>`;
@@ -328,12 +328,32 @@ function moreDetail(key) {
 async function loadMore(key) { try { state.cache[key] = await api(key === 'servers' ? '/api/nodes' : '/api/devices'); render(); } catch (e) { state.cache[key] = []; toast(e.message, true); render(); } }
 
 function adminPage() {
-  const items = [
-    ['globe','Язык','Язык интерфейса','language'], ['alert','Режим аварии','Отключить доступ пользователям','emergency'], ['pulse','Диагностика','Ошибки панели и платежей','diagnostics'], ['toggles','Управление функциями','Включение разделов','features'], ['gift','Триал','Срок, трафик и сквады','trial'], ['link','Интеграции','Remnawave и платежи','integrations'], ['edit','Редактор контента','Тексты и брендинг','content'], ['palette','Оформление','Цветовые шаблоны','theme'], ['sort','Разное','Порядок пунктов','more_order'], ['plans','Тарифы','Каталог и сквады','tariffs'], ['user','Пользователи','Поиск и управление','users'], ['gear','Система','Реферальные бонусы','system'], ['megaphone','Рассылка','Создание через Telegram','broadcast'], ['percent','Промокоды','Скидки и лимиты','promos']
+  const groups = [
+    ['Система', [
+      ['globe','Язык','Язык интерфейса','language'],
+      ['alert','Режим аварии','Отключить доступ пользователям','emergency'],
+      ['pulse','Диагностика','Ошибки панели и платежей','diagnostics'],
+      ['toggles','Управление функциями','Включение разделов','features'],
+      ['gift','Триал','Срок, трафик и сквады','trial'],
+      ['link','Интеграции','Remnawave и платежи','integrations'],
+      ['gear','Система','Реферальные бонусы','system']
+    ]],
+    ['Интерфейс', [
+      ['edit','Редактор контента','Тексты и брендинг','content'],
+      ['palette','Оформление','Цветовые шаблоны','theme'],
+      ['plans','Тарифы','Каталог и сквады','tariffs'],
+      ['sort','Разное','Порядок пунктов','more_order']
+    ]],
+    ['Операции', [
+      ['user','Пользователи','Поиск и управление','users'],
+      ['megaphone','Рассылка','Создание через Telegram','broadcast'],
+      ['percent','Промокоды','Скидки и лимиты','promos']
+    ]]
   ];
   if (!state.cache.overview) loadAdmin('overview');
   const o = state.cache.overview;
-  return `${o ? `<div class="admin-metrics"><div class="metric"><span>Пользователи</span><strong>${o.users}</strong></div><div class="metric"><span>Активные</span><strong>${o.active_subscriptions}</strong></div><div class="metric"><span>Выручка</span><strong>${money((o.revenue_kopecks || 0)/100)}</strong></div><div class="metric"><span>Ошибки</span><strong>${o.diagnostics}</strong></div></div>` : loadingState()}<div class="list">${items.map(([ico,title,sub,key]) => row(ico,title,sub,`admin:${key}`)).join('')}</div>`;
+  const menu=groups.map(([title,items])=>`<section class="admin-menu-group" aria-labelledby="admin-group-${esc(title)}"><h2 id="admin-group-${esc(title)}">${esc(title)}</h2><div class="list">${items.map(([ico,itemTitle,sub,key])=>row(ico,itemTitle,sub,`admin:${key}`)).join('')}</div></section>`).join('');
+  return `${o ? `<div class="admin-metrics"><div class="metric"><span>Пользователи</span><strong>${o.users}</strong></div><div class="metric"><span>Активные</span><strong>${o.active_subscriptions}</strong></div><div class="metric"><span>Выручка</span><strong>${money((o.revenue_kopecks || 0)/100)}</strong></div><div class="metric"><span>Ошибки</span><strong>${o.diagnostics}</strong></div></div>` : loadingState()}<div class="admin-menu-groups">${menu}</div>`;
 }
 
 async function loadAdmin(key, path = `/api/admin/${key}`) { try { state.cache[key] = await api(path); render(); } catch (e) { state.cache[key] = {error:e.message}; toast(e.message,true); render(); } }

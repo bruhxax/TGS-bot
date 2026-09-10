@@ -96,7 +96,7 @@ a { color: inherit; }
 .list-row:active { transform: scale(.992); }
 .list-row .icon-box { width: 28px; height: 28px; display: grid; place-items: center; color: var(--accent); }
 .list-row .icon-box .icon { width: 19px; height: 19px; }
-.list-row .icon-box .payment-logo, .list-row .icon-box .payment-logo .icon { width: 27px; height: 27px; }
+.list-row .icon-box .payment-logo, .list-row .icon-box .payment-logo img { width: 27px; height: 27px; }
 .list-row strong { display: block; font-size: 13px; }
 .list-row small { display: block; margin-top: 2px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .list-row .chevron { color: var(--muted); }
@@ -141,8 +141,8 @@ a { color: inherit; }
 .ticket-layout { height: 100%; min-height: 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; overflow: hidden; }
 .ticket-context { min-height: 31px; display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 10px; margin: -5px 2px 9px; }
 .ticket-user-context { min-width: 0; display: flex; align-items: baseline; gap: 7px; overflow: hidden; }
-.ticket-user-context strong { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.ticket-user-context span { color: var(--muted); font-size: 9px; white-space: nowrap; }
+.ticket-user-context span { overflow: hidden; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.ticket-user-context span:first-child { color: var(--accent); font-weight: 650; }
 .ticket-state { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
 .ticket-state:only-child { grid-column: 1 / -1; justify-self: center; }
 .ticket-status-actions { display: flex; gap: 4px; }
@@ -204,7 +204,7 @@ a { color: inherit; }
 .payment-choice > input { order: 3; margin-left: auto; }
 .payment-choice small { display: block; margin-top: 3px; color: var(--muted); }
 .payment-logo { width: 34px; height: 34px; display: grid; place-items: center; flex: none; border-radius: 50%; overflow: hidden; box-shadow: 0 5px 14px #0000002e; }
-.payment-logo .icon { width: 34px; height: 34px; }
+.payment-logo img { width: 100%; height: 100%; display: block; object-fit: cover; }
 
 .switch-row { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .switch { position: relative; width: 42px; height: 24px; flex: none; }
@@ -244,8 +244,7 @@ a { color: inherit; }
 .settings-accordion summary::-webkit-details-marker { display: none; }
 .settings-accordion summary .icon-box { width: 28px; height: 28px; display: grid; place-items: center; color: var(--accent); }
 .settings-accordion summary .icon-box .icon { width: 18px; height: 18px; }
-.settings-accordion summary .icon-box .payment-logo { width: 28px; height: 28px; }
-.settings-accordion summary .icon-box .payment-logo .icon { width: 28px; height: 28px; }
+.settings-accordion summary .icon-box .payment-logo, .settings-accordion summary .icon-box .payment-logo img { width: 28px; height: 28px; }
 .settings-accordion summary strong, .settings-accordion summary small { display: block; }
 .settings-accordion summary strong { font-size: 13px; }
 .settings-accordion summary small { margin-top: 2px; color: var(--muted); font-size: 10px; }
@@ -300,6 +299,9 @@ a { color: inherit; }
 .broadcast-hint { margin: 7px 2px 0; }
 .broadcast-actions { position: sticky; bottom: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; padding-top: 9px; background: linear-gradient(transparent, var(--bg) 24%); }
 
+.admin-menu-groups { display: grid; gap: 16px; }
+.admin-menu-group h2 { margin: 0 2px 7px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+
 .empty { padding: 26px 14px; text-align: center; color: var(--muted); font-size: 13px; }
 .empty .icon { width: 31px; height: 31px; margin: 0 auto 9px; }
 .loading-state { min-height: 94px; display: grid; place-content: center; justify-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
@@ -319,7 +321,6 @@ a { color: inherit; }
   .support-intro .primary { align-self: flex-start; }
   .ticket-context { grid-template-columns: 1fr; gap: 5px; }
   .ticket-user-context, .ticket-state { justify-content: center; }
-  .ticket-user-context span:last-child { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
