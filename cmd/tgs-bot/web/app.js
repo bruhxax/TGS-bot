@@ -17,13 +17,13 @@ const params = new URLSearchParams(location.search);
 const state = { token: sessionStorage.getItem('tgs_session') || '', data: null, page: params.get('page') || 'home', preview: isPreview, cache: {}, selectedTariffID: '', scrollPositions: {}, supportLoading: false };
 const tr = key => i18n[state.data?.language?.default || 'ru']?.[key] || i18n.ru[key] || key;
 
-let iconSpritePrefix = '/assets/icons.svg?v=20260910-v102';
+let iconSpritePrefix = '/assets/icons.svg?v=20260910-v103';
 const icon = name => `<svg class="icon${name === 'loader' ? ' icon-loader' : ''}" viewBox="0 0 24 24" aria-hidden="true"><use href="${iconSpritePrefix}#icon-${name}"></use></svg>`;
-const paymentLogo = provider => `<span class="payment-logo ${esc(provider)}" aria-hidden="true"><img src="/assets/payment-${esc(provider)}.jpg?v=20260910-v102" alt=""></span>`;
+const paymentLogo = provider => `<span class="payment-logo ${esc(provider)}" aria-hidden="true"><img src="/assets/payment-${esc(provider)}.jpg?v=20260910-v103" alt=""></span>`;
 
 async function loadIconSprite() {
   try {
-    const response = await fetch('/assets/icons.svg?v=20260910-v102', {cache:'force-cache'});
+    const response = await fetch('/assets/icons.svg?v=20260910-v103', {cache:'force-cache'});
     if (!response.ok) return;
     const parsed = new DOMParser().parseFromString(await response.text(), 'image/svg+xml');
     if (parsed.querySelector('parsererror') || !parsed.querySelector('symbol')) return;
@@ -106,6 +106,7 @@ function avatar(user, cls = 'avatar') {
 }
 
 function formatDate(value) { if (!value) return tr('noSubscription'); return new Intl.DateTimeFormat(state.data?.language?.default === 'en' ? 'en-GB' : 'ru-RU', {day:'numeric', month:'long', year:'numeric'}).format(new Date(value)); }
+function formatExpiryDay(value) { if (!value) return ''; return new Intl.DateTimeFormat(state.data?.language?.default === 'en' ? 'en-GB' : 'ru-RU', {day:'numeric', month:'long'}).format(new Date(value)); }
 function formatStamp(value) { if (!value) return ''; return new Intl.DateTimeFormat(state.data?.language?.default === 'en' ? 'en-GB' : 'ru-RU', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}).format(new Date(value)); }
 function bytes(value) { if (!value) return '0 ГБ'; return `${(value / 1073741824).toLocaleString('ru-RU', {maximumFractionDigits:1})} ГБ`; }
 function money(value) { return `${Number(value || 0).toLocaleString('ru-RU')} ₽`; }
@@ -209,6 +210,7 @@ function homePage() {
   const hasSubscription = active || Boolean(sub.subscription_url || sub.expires_at);
   const limit = Number(sub.traffic_limit_bytes || 0), used = Number(sub.traffic_used_bytes || 0);
   const progress = limit ? Math.min(100, used / limit * 100) : 0;
+  const expiryDay = formatExpiryDay(sub.expires_at), expiryYear = expires?.getFullYear() || '';
   const frame = card => `<div class="home-stage"><div class="home-content"><p class="home-brand">${esc(content.brand || 'TGS VPN')}</p>${card}</div></div>`;
   if (!hasSubscription) {
     const trialButton = features.trial && trial.enabled && !user.trial_used ? `<button class="secondary" data-action="trial">${icon('gift')}<span>${esc(content.trial_button || 'Бесплатный период')}</span></button>` : '';
@@ -218,8 +220,8 @@ function homePage() {
     return frame(`<section class="hero subscription-empty"><span class="status-dot danger" aria-label="Подписка закончилась"></span><div class="empty-state-icon">${icon('unavailable')}</div><h2>Подписка закончилась</h2><div class="compact-stack"><button class="primary" data-nav="tariffs">${icon('plans')}<span>${esc(content.renew_button || tr('renew'))}</span></button></div></section>`);
   }
   return frame(`<section class="hero subscription-active">
-    <div class="hero-head"><div><p class="eyebrow">${tr('expires')}</p><h2 class="expiry">${formatDate(sub.expires_at)}</h2></div><span class="status-dot active" aria-label="Подписка активна"></span></div>
-    <div class="hero-stats"><div class="stat-block"><small>${tr('devices')}</small><strong>${Number(sub.connected_devices || 0)} / ${Number(sub.device_limit) > 0 ? Number(sub.device_limit) : '∞'}</strong></div><div class="stat-block"><small>${tr('traffic')}</small><strong>${limit ? bytes(limit) : tr('unlimited')}</strong></div></div>
+    <div class="subscription-period"><span class="subscription-period-icon">${icon('clock')}</span><div><p class="eyebrow">${tr('expires')}</p><h2 class="expiry-date"><span>${esc(expiryDay)}</span><small>${esc(expiryYear)}</small></h2></div></div><span class="status-dot active" aria-label="Подписка активна"></span>
+    <div class="subscription-facts"><div class="subscription-fact"><span class="subscription-fact-icon">${icon('devices')}</span><span><small>${tr('devices')}</small><strong>${Number(sub.connected_devices || 0)} / ${Number(sub.device_limit) > 0 ? Number(sub.device_limit) : '∞'}</strong></span></div><div class="subscription-fact"><span class="subscription-fact-icon">${icon('traffic')}</span><span><small>${tr('traffic')}</small><strong>${limit ? bytes(limit) : tr('unlimited')}</strong></span></div></div>
     <div class="traffic-row"><span>Использовано</span><strong>${bytes(used)}${limit ? ` из ${bytes(limit)}` : ''}</strong></div><div class="progress" role="progressbar" aria-valuenow="${Math.round(progress)}" aria-valuemin="0" aria-valuemax="100"><i style="width:${progress}%"></i></div>
     <div class="compact-stack"><button class="secondary" data-nav="tariffs">${icon('plans')}<span>${esc(content.renew_button || tr('renew'))}</span></button><button class="primary" data-action="connect" ${sub.subscription_url ? '' : 'disabled'}>${icon('link')}<span>${esc(content.connect_button || tr('connect'))}</span></button></div>
   </section>`);

@@ -58,9 +58,24 @@ a { color: inherit; }
 .hero-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .eyebrow { margin: 0 0 5px; color: var(--muted); font-size: 11px; font-weight: 650; letter-spacing: .45px; text-transform: uppercase; }
 .expiry { margin: 0; font-size: 22px; line-height: 1.1; letter-spacing: -.45px; }
+.subscription-period { min-height: 40px; display: flex; align-items: center; gap: 10px; padding-right: 24px; }
+.subscription-period-icon { width: 34px; height: 34px; display: grid; place-items: center; flex: none; border-radius: 10px; background: var(--surface-alt); color: var(--accent); }
+.subscription-period-icon .icon { width: 18px; height: 18px; }
+.subscription-period .eyebrow { margin-bottom: 3px; font-size: 10px; }
+.expiry-date { margin: 0; display: flex; align-items: baseline; gap: 7px; line-height: 1; }
+.expiry-date span { font-size: 19px; font-weight: 760; letter-spacing: -.35px; }
+.expiry-date small { color: var(--muted); font-size: 12px; font-weight: 650; }
 .status-dot { position: absolute; top: 15px; right: 15px; width: 8px; height: 8px; border-radius: 50%; }
 .status-dot.active { background: var(--success); box-shadow: 0 0 5px var(--success), 0 0 10px color-mix(in srgb, var(--success) 60%, transparent); }
 .status-dot.danger { background: var(--danger); box-shadow: 0 0 5px var(--danger), 0 0 10px color-mix(in srgb, var(--danger) 55%, transparent); }
+.subscription-facts { margin: 14px 0 13px; padding: 10px 0; display: grid; grid-template-columns: 1fr 1fr; border-radius: 12px; background: var(--surface-alt); }
+.subscription-fact { min-width: 0; padding: 0 11px; display: grid; grid-template-columns: 28px minmax(0,1fr); align-items: center; gap: 8px; }
+.subscription-fact + .subscription-fact { box-shadow: inset 1px 0 color-mix(in srgb, var(--muted) 20%, transparent); }
+.subscription-fact-icon { width: 28px; height: 28px; display: grid; place-items: center; color: var(--accent); }
+.subscription-fact-icon .icon { width: 20px; height: 20px; }
+.subscription-fact small, .subscription-fact strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subscription-fact small { color: var(--muted); font-size: 10px; }
+.subscription-fact strong { margin-top: 3px; font-size: 15px; }
 .hero-stats { display: grid; grid-template-columns: 1fr 1fr; margin: 15px 0 13px; }
 .stat-block + .stat-block { padding-left: 15px; }
 .stat-block small { display: block; color: var(--muted); font-size: 11px; }
@@ -321,6 +336,11 @@ a { color: inherit; }
   .support-intro .primary { align-self: flex-start; }
   .ticket-context { grid-template-columns: 1fr; gap: 5px; }
   .ticket-user-context, .ticket-state { justify-content: center; }
+}
+@media (max-width: 340px) {
+  .subscription-fact { padding: 0 8px; grid-template-columns: 23px minmax(0,1fr); gap: 5px; }
+  .subscription-fact-icon { width: 23px; }
+  .subscription-fact strong { font-size: 13px; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
