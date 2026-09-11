@@ -742,7 +742,7 @@ function previewData(){return {
 };}
 async function previewApi(path,options={}) {
   await new Promise(resolve=>setTimeout(resolve,80));
-  if(path==='/api/connect/handoff')return {url:'https://example.com/connect/demo',fallback_url:'https://example.com/connect/demo',qr_data_url:previewQRDataURL(),expires_at:Math.floor(Date.now()/1000)+900};
+  if(path==='/api/connect/handoff')return {url:'https://example.com/connect/demo/launch',fallback_url:'https://example.com/connect/demo',qr_data_url:previewQRDataURL(),expires_at:Math.floor(Date.now()/1000)+900};
   if(path==='/api/promos/validate'){const body=JSON.parse(options.body||'{}'),code=String(body.promo_code||'').trim().toUpperCase();if(!['SALE30','WELCOME'].includes(code))throw new Error('Промокод не найден');const discount=code==='SALE30'?30:10,tariff=state.data.tariffs.find(item=>item.id===body.tariff_id),base=Number(tariff?.price_rub||0);return {code,discount_percent:discount,original_price_rub:base,price_rub:Math.max(1,Math.round(base*(100-discount))/100)};}
   if(path==='/api/nodes')return [{name:'Германия',country_code:'DE',status:'online'},{name:'Нидерланды',country_code:'NL',status:'online'},{name:'Финляндия',country_code:'FI',status:'offline'}];
   if(path==='/api/devices')return [{hwid:'iphone-demo',deviceModel:'iPhone 16 Pro',platform:'iOS',userAgent:'Happ 3.1'},{hwid:'windows-demo',deviceModel:'Windows PC',platform:'Windows',userAgent:'Hiddify'}];

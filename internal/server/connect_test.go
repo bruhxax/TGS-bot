@@ -13,7 +13,7 @@ import (
 	"tgs-bot/internal/store"
 )
 
-func TestCreateConnectHandoffOpensVisiblePage(t *testing.T) {
+func TestCreateConnectHandoffUsesImmediateLaunch(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/api/connect/handoff", strings.NewReader(`{"scheme":"happ://add/","client_name":"Happ"}`))
 	request = request.WithContext(context.WithValue(request.Context(), userKey, &store.User{SubscriptionURL: "https://example.com/sub"}))
 	response := httptest.NewRecorder()
@@ -27,11 +27,11 @@ func TestCreateConnectHandoffOpensVisiblePage(t *testing.T) {
 		t.Fatal(err)
 	}
 	pageURL, _ := payload["url"].(string)
-	if !strings.HasPrefix(pageURL, "https://vpn.example/connect/") || strings.HasSuffix(pageURL, "/launch") {
-		t.Fatalf("url = %q, want visible handoff page", pageURL)
+	if !strings.HasPrefix(pageURL, "https://vpn.example/connect/") || !strings.HasSuffix(pageURL, "/launch") {
+		t.Fatalf("url = %q, want immediate launch endpoint", pageURL)
 	}
-	if fallback, _ := payload["fallback_url"].(string); fallback != pageURL {
-		t.Fatalf("fallback_url = %q, want %q", fallback, pageURL)
+	if fallback, _ := payload["fallback_url"].(string); fallback != strings.TrimSuffix(pageURL, "/launch") {
+		t.Fatalf("fallback_url = %q, want visible page for %q", fallback, pageURL)
 	}
 }
 
@@ -106,6 +106,12 @@ func TestConnectHandoffLaunchRedirectsImmediately(t *testing.T) {
 	if cache := response.Header().Get("Cache-Control"); !strings.Contains(cache, "no-store") {
 		t.Fatalf("Cache-Control = %q, want no-store", cache)
 	}
+	if refresh := response.Header().Get("Refresh"); refresh != "1; url=/connect/"+token {
+		t.Fatalf("Refresh = %q, want visible fallback", refresh)
+	}
+	if body := response.Body.String(); !strings.Contains(body, "TGS VPN") || !strings.Contains(body, "Открыть Happ") {
+		t.Fatalf("redirect response is missing visible fallback: %s", body)
+	}
 }
 
 func TestConnectHandoffPageProvidesMinimalFallback(t *testing.T) {
@@ -123,13 +129,10 @@ func TestConnectHandoffPageProvidesMinimalFallback(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
 	}
 	body := response.Body.String()
-	if !strings.Contains(body, "happ://add/https://example.com/sub") || !strings.Contains(body, "TGS VPN") || !strings.Contains(body, "/connect/"+token+"/launch") {
+	if !strings.Contains(body, "happ://add/https://example.com/sub") || !strings.Contains(body, "TGS VPN") {
 		t.Fatalf("fallback page is missing client action or branding: %s", body)
 	}
 	if strings.Contains(body, "location.href=") || strings.Contains(body, "<script") {
 		t.Fatal("fallback page must not rely on a blocked scripted launch")
-	}
-	if csp := response.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "frame-src 'self'") {
-		t.Fatalf("Content-Security-Policy = %q, want same-origin launch frame", csp)
 	}
 }
