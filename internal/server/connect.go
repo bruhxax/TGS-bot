@@ -66,7 +66,9 @@ func (s *Server) createConnectHandoff(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	handoffURL := strings.TrimRight(s.Config.PublicBaseURL, "/") + "/connect/" + token
-	png, err := qrcode.Encode(handoffURL, qrcode.Medium, 256)
+	// The QR is consumed by VPN clients, so it must contain the subscription
+	// itself. The browser handoff URL is intentionally used only by the button.
+	png, err := qrcode.Encode(u.SubscriptionURL, qrcode.Medium, 512)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Не удалось создать QR-код")
 		return
