@@ -31,6 +31,7 @@ func (s *Server) Handler(static fs.FS) http.Handler {
 	mux.HandleFunc("POST /api/webhooks/cryptobot", s.webhookCryptoBot)
 	mux.HandleFunc("POST /api/webhooks/payments/{provider}", s.webhookAlternativePayment)
 	mux.HandleFunc("POST /api/webhooks/remnawave", s.webhookRemnawave)
+	mux.HandleFunc("GET /connect/{token}", s.connectHandoffPage)
 
 	mux.Handle("GET /api/bootstrap", s.auth(http.HandlerFunc(s.bootstrap)))
 	mux.Handle("GET /api/events", s.auth(http.HandlerFunc(s.events)))
@@ -38,6 +39,8 @@ func (s *Server) Handler(static fs.FS) http.Handler {
 	mux.Handle("GET /api/tickets", s.auth(http.HandlerFunc(s.tickets)))
 	mux.Handle("POST /api/tickets", s.auth(http.HandlerFunc(s.createTicket)))
 	mux.Handle("POST /api/tickets/{id}/messages", s.auth(http.HandlerFunc(s.ticketMessage)))
+	mux.Handle("POST /api/connect/handoff", s.auth(http.HandlerFunc(s.createConnectHandoff)))
+	mux.Handle("POST /api/promos/validate", s.auth(http.HandlerFunc(s.validatePromo)))
 	mux.Handle("POST /api/payments/checkout", s.auth(http.HandlerFunc(s.checkout)))
 	mux.Handle("GET /api/payments/{id}", s.auth(http.HandlerFunc(s.paymentStatus)))
 	mux.Handle("GET /api/nodes", s.auth(http.HandlerFunc(s.nodes)))
