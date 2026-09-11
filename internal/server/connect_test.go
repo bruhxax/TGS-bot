@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,7 +10,30 @@ import (
 	"time"
 
 	"tgs-bot/internal/config"
+	"tgs-bot/internal/store"
 )
+
+func TestCreateConnectHandoffOpensVisiblePage(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/connect/handoff", strings.NewReader(`{"scheme":"happ://add/","client_name":"Happ"}`))
+	request = request.WithContext(context.WithValue(request.Context(), userKey, &store.User{SubscriptionURL: "https://example.com/sub"}))
+	response := httptest.NewRecorder()
+	server := &Server{Config: config.Config{AppSecret: "a-test-secret-that-is-long-enough", PublicBaseURL: "https://vpn.example"}}
+	server.createConnectHandoff(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	pageURL, _ := payload["url"].(string)
+	if !strings.HasPrefix(pageURL, "https://vpn.example/connect/") || strings.HasSuffix(pageURL, "/launch") {
+		t.Fatalf("url = %q, want visible handoff page", pageURL)
+	}
+	if fallback, _ := payload["fallback_url"].(string); fallback != pageURL {
+		t.Fatalf("fallback_url = %q, want %q", fallback, pageURL)
+	}
+}
 
 func TestConnectHandoffRoundTrip(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
@@ -98,10 +123,13 @@ func TestConnectHandoffPageProvidesMinimalFallback(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
 	}
 	body := response.Body.String()
-	if !strings.Contains(body, "happ://add/https://example.com/sub") || !strings.Contains(body, "TGS VPN") {
+	if !strings.Contains(body, "happ://add/https://example.com/sub") || !strings.Contains(body, "TGS VPN") || !strings.Contains(body, "/connect/"+token+"/launch") {
 		t.Fatalf("fallback page is missing client action or branding: %s", body)
 	}
 	if strings.Contains(body, "location.href=") || strings.Contains(body, "<script") {
 		t.Fatal("fallback page must not rely on a blocked scripted launch")
+	}
+	if csp := response.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "frame-src 'self'") {
+		t.Fatalf("Content-Security-Policy = %q, want same-origin launch frame", csp)
 	}
 }
