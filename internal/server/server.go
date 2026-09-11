@@ -31,6 +31,7 @@ func (s *Server) Handler(static fs.FS) http.Handler {
 	mux.HandleFunc("POST /api/webhooks/cryptobot", s.webhookCryptoBot)
 	mux.HandleFunc("POST /api/webhooks/payments/{provider}", s.webhookAlternativePayment)
 	mux.HandleFunc("POST /api/webhooks/remnawave", s.webhookRemnawave)
+	mux.HandleFunc("GET /connect/{token}/launch", s.connectHandoffLaunch)
 	mux.HandleFunc("GET /connect/{token}", s.connectHandoffPage)
 
 	mux.Handle("GET /api/bootstrap", s.auth(http.HandlerFunc(s.bootstrap)))

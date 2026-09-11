@@ -60,10 +60,32 @@ func TestSafeClientScheme(t *testing.T) {
 	}
 }
 
-func TestConnectHandoffPageLaunchesClient(t *testing.T) {
+func TestConnectHandoffLaunchRedirectsImmediately(t *testing.T) {
 	const secret = "a-test-secret-that-is-long-enough"
 	now := time.Now()
 	payload := connectHandoff{Scheme: "happ://add/", SubscriptionURL: "https://example.com/sub", ClientName: "Happ", ExpiresAt: now.Add(time.Minute).Unix()}
+	token, err := sealConnectHandoff(secret, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/connect/"+token+"/launch", nil)
+	request.SetPathValue("token", token)
+	response := httptest.NewRecorder()
+	(&Server{Config: config.Config{AppSecret: secret}}).connectHandoffLaunch(response, request)
+	if response.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusFound)
+	}
+	if location := response.Header().Get("Location"); location != "happ://add/https://example.com/sub" {
+		t.Fatalf("Location = %q, want expected client URL", location)
+	}
+	if cache := response.Header().Get("Cache-Control"); !strings.Contains(cache, "no-store") {
+		t.Fatalf("Cache-Control = %q, want no-store", cache)
+	}
+}
+
+func TestConnectHandoffPageProvidesMinimalFallback(t *testing.T) {
+	const secret = "a-test-secret-that-is-long-enough"
+	payload := connectHandoff{Scheme: "happ://add/", SubscriptionURL: "https://example.com/sub", ClientName: "Happ", ExpiresAt: time.Now().Add(time.Minute).Unix()}
 	token, err := sealConnectHandoff(secret, payload)
 	if err != nil {
 		t.Fatal(err)
@@ -76,10 +98,10 @@ func TestConnectHandoffPageLaunchesClient(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
 	}
 	body := response.Body.String()
-	if !strings.Contains(body, "happ://add/https://example.com/sub") || !strings.Contains(body, "location.href=") {
-		t.Fatalf("handoff page does not launch the expected client: %s", body)
+	if !strings.Contains(body, "happ://add/https://example.com/sub") || !strings.Contains(body, "TGS VPN") {
+		t.Fatalf("fallback page is missing client action or branding: %s", body)
 	}
-	if !strings.Contains(response.Header().Get("Content-Security-Policy"), "script-src 'nonce-") {
-		t.Fatal("handoff page must restrict inline scripts with a nonce")
+	if strings.Contains(body, "location.href=") || strings.Contains(body, "<script") {
+		t.Fatal("fallback page must not rely on a blocked scripted launch")
 	}
 }
