@@ -354,12 +354,181 @@ function ticketPage(id) {
   return `<section class="ticket-layout">${detailHead(ticket.subject, 'support')}<div class="ticket-context">${userInfo}<div class="ticket-state"><span class="status ${esc(ticket.status)}">${statusLabel(ticket.status)}</span>${statusActions}</div></div><div class="chat" aria-label="Переписка с поддержкой">${ticketMessages(messages)}</div>${compose}</section>`;
 }
 
-const moreItems = {
-  servers:['server','Статус серверов','Доступность нод Remnawave'], devices:['devices','Устройства','Управление подключениями'], payments:['card','Платежи','История покупок'], referral:['referral','Реферальная система','Ссылка и вознаграждения']
+const fallbackLegalTemplates = {
+  privacy:`Дата вступления в силу — {effective_date}
+
+**Обработка данных пользователей сервиса {brand}**
+
+Настоящая Политика описывает, какие данные обрабатывает {brand}, для чего они используются и как пользователь может обратиться к администрации.
+
+Используя бота, Mini App или браузерную версию сервиса, пользователь подтверждает ознакомление с настоящей Политикой.
+
+## 1. Какие данные обрабатываются
+
+{brand} может обрабатывать Telegram ID, имя, username, язык, технические данные сессии, сведения о подписке, платежах и обращениях в поддержку.
+
+Платёжные реквизиты банковских карт обрабатываются платёжными провайдерами и не сохраняются внутри {brand}.
+
+## 2. Для чего используются данные
+
+Данные используются для авторизации, выдачи и управления подпиской, проведения платежей, поддержки пользователей, защиты от злоупотреблений и улучшения работы сервиса.
+
+## 3. Хранение и передача
+
+Данные хранятся только в объёме, необходимом для работы сервиса и исполнения обязательств перед пользователем.
+
+Передача данных третьим лицам допускается только поставщикам инфраструктуры и платёжным системам в объёме, необходимом для оказания соответствующей услуги, либо когда этого требует закон.
+
+## 4. Права пользователя
+
+Пользователь может запросить уточнение или удаление своих данных, если их дальнейшее хранение не требуется для исполнения обязательств или соблюдения закона.
+
+## Связь с администрацией
+
+- Telegram: {support}
+- Поддержка внутри {brand}
+
+© {year} {brand}. Все права защищены.`,
+  agreement:`Дата вступления в силу — {effective_date}
+
+Юрисдикция: Российская Федерация
+
+Настоящее Пользовательское соглашение регулирует условия использования VPN-сервиса {brand}, права и обязанности пользователей, а также отношения между пользователем и администрацией сервиса.
+
+Используя {brand}, пользователь подтверждает, что ознакомился с условиями настоящего Соглашения, понял их и принимает полностью, без оговорок и исключений.
+
+## 1. Общие положения
+
+1.1. Настоящее Соглашение является публичной офертой в соответствии со статьёй 437 Гражданского кодекса Российской Федерации.
+
+1.2. Использование {brand} означает полное и безоговорочное принятие условий настоящего Соглашения.
+
+1.3. Администрация вправе изменять настоящее Соглашение без предварительного уведомления пользователя. Актуальная редакция размещается внутри официальных ресурсов {brand}.
+
+1.4. Продолжение использования сервиса после публикации новой редакции означает согласие пользователя с такими изменениями.
+
+1.5. Запуск Telegram Mini App {brand}, открытие Telegram-бота или браузерной версии сервиса означает, что пользователь автоматически ознакомился с настоящим Соглашением и принимает его условия.
+
+## 2. О сервисе
+
+2.1. {brand} предоставляет доступ к VPN-инфраструктуре для шифрования трафика, изменения маршрута соединения и упрощения доступа к интернет-ресурсам.
+
+2.2. Сервис предоставляется по модели «как есть» (as is). Администрация не гарантирует постоянную доступность, фиксированную скорость, отсутствие блокировок отдельных ресурсов и непрерывную работу всех серверов.
+
+2.3. Функциональность сервиса, перечень тарифов, лимиты трафика, количество устройств, бонусы, пробные периоды и иные условия могут изменяться по усмотрению Администрации.
+
+## 3. Доступ и учётная запись
+
+3.1. Доступ к {brand} осуществляется через Telegram Mini App, Telegram-бота и иные связанные с ними средства идентификации пользователя.
+
+3.2. Пользователь обязан самостоятельно обеспечивать сохранность своих ссылок доступа, конфигураций, подключённых устройств и иных данных, позволяющих использовать сервис.
+
+3.3. Передача доступа третьим лицам, перепродажа доступа, совместное использование одной подписки в обход лимитов либо любые попытки скрытого шаринга запрещены.
+
+## 4. Тарифы и оплата
+
+4.1. Доступ к платным функциям {brand} предоставляется по действующим тарифам, указанным в сервисе на момент оплаты.
+
+4.2. Оплата осуществляется через сторонние платёжные системы и сервисы. Администрация не несёт ответственности за задержки, ошибки, комиссии и технические ограничения на стороне платёжных провайдеров.
+
+4.3. Бонусные дни, реферальные начисления, пробные периоды, подарки за отзывы и иные промо-механики могут быть отменены, уменьшены либо аннулированы при выявлении злоупотреблений, накрутки или подозрительной активности.
+
+4.4. Поскольку {brand} предоставляет цифровой доступ к сервису, возвраты и компенсации осуществляются только в объёме и порядке, которые прямо предусмотрены законодательством или правилами используемой платёжной системы.
+
+4.5. При оплате банковской картой пользователь соглашается на привязку способа оплаты для автопродления. Списание средств происходит автоматически по окончании срока подписки. Автоплатежи можно отключить в разделе «Платежи».
+
+## 5. Обязанности пользователя
+
+5.1. Не использовать {brand} для деятельности, нарушающей законодательство Российской Федерации либо применимое законодательство иных стран.
+
+5.2. Не распространять вредоносное программное обеспечение, спам, фишинг, запрещённый контент, а также не нарушать права третьих лиц.
+
+5.3. Не предпринимать попыток вмешательства в работу {brand}, обхода технических ограничений, подмены данных, эксплуатации уязвимостей либо перегрузки инфраструктуры сервиса.
+
+- Не злоупотреблять пробными периодами, отзывами, реферальной системой и бонусными начислениями.
+- Не использовать {brand} как коммерческий resale-доступ без отдельного разрешения Администрации.
+- Не выдавать себя за представителя {brand} без прямого согласия Администрации.
+
+## 6. Права администрации и прекращение доступа
+
+6.1. Администрация вправе ограничить, приостановить, аннулировать или полностью прекратить доступ пользователя к сервису, подписке, бонусам или отдельным функциям в любое время, если сочтёт это необходимым.
+
+6.2. Администрация вправе аннулировать подписку пользователя полностью или частично, в том числе без раскрытия причин, если это требуется для защиты сервиса, инфраструктуры, иных пользователей либо по внутренним правилам {brand}.
+
+6.3. Администрация вправе проводить технические, аварийные, профилактические и иные работы без предварительного уведомления, а также менять состав серверов, нод, тарифов, лимитов и способов оплаты.
+
+6.4. {brand} может полностью прекратить своё существование, работу либо развитие в связи с техническими, финансовыми, юридическими, инфраструктурными или иными обстоятельствами. Пользователь принимает этот риск, начиная использование сервиса.
+
+## 7. Ограничение ответственности
+
+7.1. Администрация не несёт ответственности за любые прямые или косвенные убытки, возникшие у пользователя в результате использования либо невозможности использования {brand}.
+
+7.2. Администрация не гарантирует доступность конкретных сайтов, приложений, игр, банковских сервисов, стриминговых платформ и иных ресурсов через {brand}.
+
+7.3. Пользователь использует {brand} на свой страх и риск и самостоятельно оценивает правовые последствия использования VPN-технологий на территории своей страны.
+
+## 8. Данные и приватность
+
+8.1. {brand} обрабатывает только тот объём технических и учётных данных, который необходим для работы сервиса, оплаты, поддержки пользователей и противодействия злоупотреблениям.
+
+8.2. Администрация вправе хранить технические сведения, необходимые для защиты инфраструктуры, диагностики неисправностей и пресечения мошенничества.
+
+8.3. {brand} не гарантирует абсолютную анонимность пользователя от любых внешних факторов, включая блокировки, действия третьих лиц, ошибки приложений и ограничения платформ.
+
+## 9. Связь с администрацией
+
+9.1. Связь с Администрацией осуществляется исключительно через Telegram: {support} либо через встроенную поддержку внутри Mini App {brand}.
+
+9.2. Иные способы связи могут отсутствовать. Ответ поддержки предоставляется в разумный срок, но не гарантируется мгновенно.
+
+## 10. Разрешение споров
+
+10.1. Все споры и разногласия стороны стремятся урегулировать путём переговоров и обращения в поддержку.
+
+10.2. При невозможности урегулировать спор мирным путём он подлежит рассмотрению в соответствии с законодательством Российской Федерации.
+
+## 11. Интеллектуальная собственность и принятие условий
+
+11.1. Все элементы интерфейса {brand}, тексты, визуальные материалы, логотипы, код и иные объекты сервиса защищены законодательством об интеллектуальной собственности.
+
+11.2. Начав использование {brand}, пользователь подтверждает, что прочитал настоящее Соглашение и принимает его полностью.
+
+## Контакты
+
+- Telegram поддержки: {support}
+- Встроенная поддержка внутри Mini App {brand}
+
+© {year} {brand}. Все права защищены.`
 };
+
+const moreItems = {
+  servers:['server','Статус серверов','Доступность нод Remnawave'], devices:['devices','Устройства','Управление подключениями'], payments:['card','Платежи','История покупок'], referral:['referral','Реферальная система','Ссылка и вознаграждения'], privacy:['info','Политика конфиденциальности','Обработка и защита данных'], agreement:['edit','Пользовательское соглашение','Условия использования сервиса']
+};
+function moreOrder(value) {
+  const configured=Array.isArray(value)?value.filter(key=>moreItems[key]):[];
+  return [...configured,...Object.keys(moreItems).filter(key=>!configured.includes(key))];
+}
+function legalTemplate(value) {
+  const content=state.data?.content||{}, variables={brand:content.brand||'TGS VPN',support:content.legal_support||'@bruhvpnsupport',effective_date:content.legal_effective_date||'13 сентября 2026 г.',year:String(new Date().getFullYear())};
+  return String(value||'').replace(/\{(brand|support|effective_date|year)\}/g,(_,key)=>variables[key]);
+}
+function legalInline(value) {
+  return esc(value).replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/(^|[\s(])(\@[A-Za-z0-9_]{5,32})/g,(_,space,username)=>`${space}<a href="https://t.me/${username.slice(1)}" target="_blank" rel="noopener noreferrer">${username}</a>`);
+}
+function legalDocument(value,label) {
+  const blocks=legalTemplate(value).replace(/\r\n?/g,'\n').trim().split(/\n{2,}/).filter(Boolean);
+  const body=blocks.map((block,index)=>{
+    const lines=block.split('\n').map(line=>line.trim()).filter(Boolean), heading=lines[0]?.match(/^#{1,3}\s+(.+)$/);
+    if(heading)return `<h3>${legalInline(heading[1])}</h3>`;
+    if(lines.every(line=>/^-\s+/.test(line)))return `<ul>${lines.map(line=>`<li>${legalInline(line.replace(/^-\s+/,''))}</li>`).join('')}</ul>`;
+    const className=index===0?' class="legal-meta"':/^©/.test(lines[0])?' class="legal-footer"':'';
+    return `<p${className}>${lines.map(legalInline).join('<br>')}</p>`;
+  }).join('');
+  return `<article class="legal-document" aria-label="${esc(label)}">${body}</article>`;
+}
 function morePage() {
-  const order = state.data.more_order || Object.keys(moreItems), f = state.data.features;
-  const enabled = {servers:f.server_status, devices:f.devices, payments:f.payments, referral:f.referrals};
+  const order = moreOrder(state.data.more_order), f = state.data.features;
+  const enabled = {servers:f.server_status, devices:f.devices, payments:f.payments, referral:f.referrals, privacy:true, agreement:true};
   const panelUsername = state.data.user.remnawave_username || `tgs_${state.data.user.telegram_id}`;
   return `<section class="profile-plain">${avatar(state.data.user,'profile-avatar')}<strong>${esc(panelUsername)}</strong></section><div class="list">${order.filter(key => enabled[key] && moreItems[key]).map(key => row(moreItems[key][0],moreItems[key][1],moreItems[key][2],`more:${key}`)).join('')}</div>`;
 }
@@ -367,6 +536,8 @@ function morePage() {
 function moreDetail(key) {
   const labels = moreItems[key] || ['info','Раздел',''];
   const head = detailHead(labels[1], 'more');
+  if (key === 'privacy') return `${head}${legalDocument(state.data.content.privacy_policy_text||fallbackLegalTemplates.privacy,labels[1])}`;
+  if (key === 'agreement') return `${head}${legalDocument(state.data.content.user_agreement_text||fallbackLegalTemplates.agreement,labels[1])}`;
   if (key === 'payments') return `${head}<div class="list">${state.data.payments?.length ? state.data.payments.map(p => `<div class="list-row" style="cursor:default"><span class="icon-box">${['yookassa','cryptobot','lava','wata','platega','freekassa','heleket','pally'].includes(p.provider)?paymentLogo(p.provider):icon('card')}</span><span><strong>${money(p.amount_rub)}</strong><small>${esc(p.snapshot?.name || p.provider)} · ${formatDate(p.created_at)}</small></span><span class="status ${p.status}">${statusLabel(p.status)}</span></div>`).join('') : empty('card','Платежей пока нет')}</div>`;
   if (key === 'referral') { const ref = state.data.referral; return `${head}<section class="hero"><p class="eyebrow">Приглашено</p><h2 class="expiry">${ref.count}</h2><div class="hero-stats"><div class="stat-block"><small>Бонус</small><strong>${ref.referral_days} дней</strong></div><div class="stat-block"><small>Трафик</small><strong>${ref.referral_traffic_gb} ГБ</strong></div></div><div class="code">${esc(ref.link)}</div><button class="primary full-width top-gap" data-copy="${esc(ref.link)}">${icon('copy')}Скопировать ссылку</button></section>`; }
   const cached = state.cache[key];
@@ -440,6 +611,7 @@ function adminCollection(key,title,path,view) { if (!state.cache[`admin:${key}`]
 function switchRow(name,label,checked,description='') { return `<div class="switch-row"><span><strong>${esc(label)}</strong>${description ? `<small style="display:block;color:var(--muted);margin-top:3px">${esc(description)}</small>` : ''}</span><label class="switch"><input type="checkbox" name="${esc(name)}" ${checked ? 'checked' : ''}><i></i></label></div>`; }
 function field(name,label,value='',type='text',hint='',wide=true) { return `<div class="field ${wide ? 'wide' : ''}"><label for="f-${esc(name)}">${esc(label)}</label><input id="f-${esc(name)}" name="${esc(name)}" type="${type}" value="${esc(value)}">${hint ? `<p class="field-hint">${esc(hint)}</p>` : ''}</div>`; }
 function textareaField(name,label,value='',hint='') { return `<div class="field wide"><label for="f-${esc(name)}">${esc(label)}</label><textarea id="f-${esc(name)}" name="${esc(name)}">${esc(value)}</textarea>${hint?`<p class="field-hint">${esc(hint)}</p>`:''}</div>`; }
+function legalTemplateField(name,label,value='') { return `<div class="field wide legal-template-field"><label for="f-${esc(name)}">${esc(label)}</label><textarea id="f-${esc(name)}" name="${esc(name)}" rows="18" spellcheck="true">${esc(value)}</textarea><p class="field-hint">Форматирование: ## заголовок, **жирный текст**, - пункт списка</p></div>`; }
 function colorField(name,label,value) { return `<label class="color-field"><span>${esc(label)}</span><input type="color" name="${esc(name)}" value="${esc(value)}" aria-label="${esc(label)}"><code>${esc(value)}</code></label>`; }
 
 function squadPicker(selectedInternal=[], selectedExternal='', prefix='squads', includeExternal=true) {
@@ -477,7 +649,7 @@ function settingPage(key, payload) {
   if (key === 'content') return `${adminBack(titles[key])}${contentForms(v)}`;
 	if (key === 'subpage') return `${adminBack(titles[key],'Своя страница подключения и клиенты для разных устройств')}${subpageForm(v)}`;
   if (key === 'system') inner = `<section class="settings-group"><header><strong>Реферальная система</strong><small>Бонус владельцу ссылки после приглашения</small></header><div class="form-grid">${field('referral_days','Бонус дней',v.referral_days,'number','',false)}${field('referral_traffic_gb','Бонус трафика, ГБ',v.referral_traffic_gb,'number','',false)}${switchRow('reward_after_payment','Только после первой оплаты',v.reward_after_payment,'Без оплаты приглашённого бонус не начисляется')}</div></section>`;
-  if (key === 'more_order') { const items=v.items||[]; inner=`<p class="notice">Изменяйте порядок кнопками. Видимость разделов задаётся в управлении функциями.</p><div class="list" id="order-list">${items.map((name,idx)=>`<div class="list-row" data-order-item="${name}"><span class="icon-box">${icon(moreItems[name]?.[0]||'info')}</span><span><strong>${esc(moreItems[name]?.[1]||name)}</strong></span><span class="order-actions"><button type="button" class="compact-button icon-only" data-move="${idx}:up" aria-label="Выше">${icon('arrow-up')}</button><button type="button" class="compact-button icon-only" data-move="${idx}:down" aria-label="Ниже">${icon('arrow-down')}</button></span></div>`).join('')}</div><input type="hidden" name="items" value="${esc(items.join(','))}">`; }
+  if (key === 'more_order') { const items=moreOrder(v.items); inner=`<p class="notice">Изменяйте порядок кнопками. Видимость разделов задаётся в управлении функциями.</p><div class="list" id="order-list">${items.map((name,idx)=>`<div class="list-row" data-order-item="${name}"><span class="icon-box">${icon(moreItems[name]?.[0]||'info')}</span><span><strong>${esc(moreItems[name]?.[1]||name)}</strong></span><span class="order-actions"><button type="button" class="compact-button icon-only" data-move="${idx}:up" aria-label="Выше">${icon('arrow-up')}</button><button type="button" class="compact-button icon-only" data-move="${idx}:down" aria-label="Ниже">${icon('arrow-down')}</button></span></div>`).join('')}</div><input type="hidden" name="items" value="${esc(items.join(','))}">`; }
   if (key === 'theme') { const templates=payload.theme_templates||{},names={telegram:'Telegram',graphite:'Графит',emerald:'Изумруд',sand:'Песок',ocean:'Океан',violet:'Фиолетовый',ruby:'Рубин',steel:'Сталь'}; inner=`<div class="theme-grid">${Object.entries(templates).map(([name,t])=>`<button type="button" class="theme-option ${v.template===name?'active':''}" data-theme="${name}" data-theme-values="${esc(JSON.stringify(t))}"><span class="swatches"><i style="background:${t.background}"></i><i style="background:${t.surface}"></i><i style="background:${t.accent}"></i></span><strong>${esc(names[name]||name)}</strong></button>`).join('')}</div><input type="hidden" name="template" value="${esc(v.template||'telegram')}"><div class="color-grid">${colorField('accent','Акцент',v.accent)}${colorField('background','Фон',v.background)}${colorField('surface','Карточки',v.surface)}${colorField('surface_alt','Поля',v.surface_alt)}${colorField('text','Текст',v.text)}${colorField('muted','Вторичный текст',v.muted)}</div>`; }
   if (key === 'integrations') return `${adminBack(titles[key])}${integrationForms(v)}`;
   return `${adminBack(titles[key])}<form class="admin-form" data-setting-form="${key}">${inner}<button class="primary" style="width:100%;margin-top:16px">Сохранить</button></form>`;
@@ -507,10 +679,11 @@ function contentForms(v) {
   const connect=`<form data-setting-form="content"><div class="form-grid">${field('connect_install_title','Шаг 1 — заголовок',v.connect_install_title||'')}${field('connect_install_hint','Шаг 1 — описание',v.connect_install_hint||'')}${field('connect_add_title','Шаг 2 — заголовок',v.connect_add_title||'')}${field('connect_add_hint','Шаг 2 — описание',v.connect_add_hint||'')}${field('connect_use_title','Шаг 3 — заголовок',v.connect_use_title||'')}${field('connect_use_hint','Шаг 3 — описание',v.connect_use_hint||'')}${field('connect_recommended','Метка рекомендации',v.connect_recommended||'')}${field('connect_open_button','Добавить подписку — кнопка',v.connect_open_button||'')}${field('connect_install_button','Скачать — кнопка',v.connect_install_button||'')}${field('connect_copy_button','Копировать — кнопка',v.connect_copy_button||'')}${field('connect_empty','Нет клиентов',v.connect_empty||'')}</div><button class="primary full-width">Сохранить</button></form>`;
   const start=`<form data-setting-form="content">${telegramMessageField('start_message','Сообщение /start',v.start_message||legacyStart)}${telegramButtonEditor('trial_button','Бесплатный период',v)}${telegramButtonEditor('cabinet_button','Личный кабинет',v)}${telegramButtonEditor('support_button','Поддержка',v)}<button class="primary full-width">Сохранить</button></form>`;
   const notifications=`<form data-setting-form="content">${telegramMessageField('payment_success_message','Успешная оплата',v.payment_success_message||'')}${telegramMessageField('grace_access_message','Доступ после окончания',v.grace_access_message||'','Переменная: {days}')}${telegramMessageField('support_reply_message','Ответ поддержки',v.support_reply_message||'','Переменная: {subject}')}${telegramMessageField('full_block_message','Полная блокировка',v.full_block_message||'')}${telegramMessageField('subscription_rebound_old_message','Перенос — старому владельцу',v.subscription_rebound_old_message||'')}${telegramMessageField('subscription_rebound_new_message','Перенос — новому владельцу',v.subscription_rebound_new_message||'')}${telegramMessageField('myid_message','Команда /myid',v.myid_message||'','Переменная: {id}')}${telegramMessageField('emergency_message','Аварийный режим',v.emergency_message||'')}<button class="primary full-width">Сохранить</button></form>`;
+  const legal=`<form data-setting-form="content"><p class="notice">Название сервиса берётся из раздела «Брендинг». Переменные {brand}, {support}, {effective_date} и {year} подставляются автоматически.</p><div class="form-grid">${field('legal_effective_date','Дата вступления в силу',v.legal_effective_date||'13 сентября 2026 г.')}${field('legal_support','Telegram поддержки',v.legal_support||'@bruhvpnsupport')}</div>${legalTemplateField('privacy_policy_text','Политика конфиденциальности',v.privacy_policy_text||fallbackLegalTemplates.privacy)}${legalTemplateField('user_agreement_text','Пользовательское соглашение',v.user_agreement_text||fallbackLegalTemplates.agreement)}<button class="primary full-width">Сохранить</button></form>`;
   const adminAlerts=`<form data-setting-form="content">${telegramMessageField('trial_admin_message','Выдан пробный период',v.trial_admin_message||'','Переменные: {name}, {id}')}${telegramMessageField('new_ticket_admin_message','Новый тикет',v.new_ticket_admin_message||'','Переменные: {subject}, {name}, {id}')}${telegramMessageField('ticket_message_admin_message','Новое сообщение в тикете',v.ticket_message_admin_message||'','Переменная: {subject}')}${telegramMessageField('payment_admin_message','Новая оплата',v.payment_admin_message||'','Переменные: {name}, {amount}, {provider}')}<button class="primary full-width">Сохранить</button></form>`;
   const broadcast=`<form data-setting-form="content">${telegramMessageField('admin_only_message','Нет прав администратора',v.admin_only_message||'')}${telegramMessageField('broadcast_prompt_message','Запрос сообщения',v.broadcast_prompt_message||'')}${telegramMessageField('broadcast_draft_error_message','Ошибка черновика',v.broadcast_draft_error_message||'')}${telegramMessageField('broadcast_save_error_message','Ошибка сохранения',v.broadcast_save_error_message||'')}${telegramMessageField('broadcast_preview_error_message','Ошибка предпросмотра',v.broadcast_preview_error_message||'')}${telegramMessageField('broadcast_edit_message','Повторный ввод',v.broadcast_edit_message||'')}${telegramMessageField('broadcast_confirmed_message','Сообщение подтверждено',v.broadcast_confirmed_message||'')}${telegramMessageField('broadcast_start_error_message','Ошибка запуска',v.broadcast_start_error_message||'')}${telegramMessageField('broadcast_complete_message','Рассылка завершена',v.broadcast_complete_message||'','Переменные: {sent}, {failed}')}<button class="primary full-width">Сохранить</button></form>`;
   const brand=`<form data-setting-form="content">${field('brand','Название',v.brand||'')}${field('logo_url','URL логотипа',v.logo_url||'','url')}<button class="primary full-width">Сохранить</button></form>`;
-  const groups=[['Главный экран','Статусы и кнопки подписки','home',home],['Страница подключения','Тексты выбора клиентов','link',connect],['Поддержка','Тексты списка обращений','support',support],['Чат и /start','HTML, премиум-эмодзи и кнопки','send',start],['Уведомления','Все сообщения пользователям','info',notifications],['Администратору','Триал, тикеты и платежи','admin',adminAlerts],['Рассылка','Системные сообщения в чате','megaphone',broadcast],['Брендинг','Название и логотип','palette',brand]];
+  const groups=[['Главный экран','Статусы и кнопки подписки','home',home],['Страница подключения','Тексты выбора клиентов','link',connect],['Поддержка','Тексты списка обращений','support',support],['Юридические документы','Политика и соглашение','info',legal],['Чат и /start','HTML, премиум-эмодзи и кнопки','send',start],['Уведомления','Все сообщения пользователям','info',notifications],['Администратору','Триал, тикеты и платежи','admin',adminAlerts],['Рассылка','Системные сообщения в чате','megaphone',broadcast],['Брендинг','Название и логотип','palette',brand]];
   return `<div class="accordion-stack">${groups.map(([title,sub,ico,body],index)=>settingsAccordion(title,sub,ico,body,index===0)).join('')}</div>`;
 }
 
