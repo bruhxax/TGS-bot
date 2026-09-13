@@ -93,6 +93,11 @@ a { color: inherit; }
 .traffic-row span { color: var(--muted); }
 .progress { height: 5px; overflow: hidden; border-radius: 3px; background: var(--surface-alt); }
 .progress > i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 190ms ease-out; }
+.subscription-utilities { display: grid; grid-template-columns: 1fr 1fr; margin: 9px 0 -3px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.subscription-utilities button { min-height: 37px; display: flex; align-items: center; justify-content: center; gap: 6px; background: transparent; color: var(--muted); font-size: 10px; font-weight: 650; cursor: pointer; }
+.subscription-utilities button + button { border-left: 1px solid var(--line); }
+.subscription-utilities button:hover, .subscription-utilities button:focus-visible { color: var(--text); }
+.subscription-utilities .icon { width: 15px; height: 15px; color: var(--accent); }
 .compact-stack { display: grid; gap: 7px; margin-top: 13px; }
 .subscription-empty { min-height: 260px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .subscription-empty h2 { margin: 9px 0 11px; font-size: 18px; }
@@ -181,6 +186,12 @@ a { color: inherit; }
 .tariffs-intro { margin: 3px 3px 14px; }
 .tariffs-intro h1 { margin: 3px 0 4px; font-size: 20px; letter-spacing: -.35px; }
 .tariffs-intro p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.tariff-advisor-trigger { width: 100%; min-height: 52px; margin-top: 12px; padding: 7px 2px; display: grid; grid-template-columns: 30px minmax(0,1fr) 17px; align-items: center; gap: 8px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.tariff-advisor-trigger > .icon:first-child { width: 20px; height: 20px; color: var(--accent); }
+.tariff-advisor-trigger > .icon:last-child { width: 15px; height: 15px; color: var(--muted); }
+.tariff-advisor-trigger strong, .tariff-advisor-trigger small { display: block; }
+.tariff-advisor-trigger strong { font-size: 12px; }
+.tariff-advisor-trigger small { margin-top: 2px; color: var(--muted); font-size: 9px; }
 .tariff-list { display: grid; gap: 8px; }
 .tariff { position: relative; width: 100%; padding: 13px; background: var(--surface); color: var(--text); border-radius: var(--radius); text-align: left; cursor: pointer; transition: transform 160ms var(--ease-ios), background 180ms ease-out, box-shadow 180ms ease-out; }
 .tariff:hover { background: color-mix(in srgb, var(--surface) 88%, var(--surface-alt)); }
@@ -201,10 +212,26 @@ a { color: inherit; }
 .tariff-selection { min-width: 70px; display: inline-flex; align-items: center; justify-content: flex-end; gap: 4px; color: var(--accent); font-size: 10px; font-weight: 700; }
 .tariff-selection .icon { width: 15px; height: 15px; }
 .tariff-pay { width: 100%; margin-top: 10px; }
+.advisor-result { width: 100%; min-height: 72px; margin-top: 10px; padding: 10px 1px; display: grid; grid-template-columns: 34px minmax(0,1fr) auto; align-items: center; gap: 9px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.advisor-result-icon { width: 32px; height: 32px; display: grid; place-items: center; color: var(--accent); }
+.advisor-result-icon .icon { width: 22px; height: 22px; }
+.advisor-result small, .advisor-result strong, .advisor-result em { display: block; }
+.advisor-result small { color: var(--accent); font-size: 9px; font-weight: 700; }
+.advisor-result strong { margin: 3px 0; font-size: 14px; }
+.advisor-result em { overflow: hidden; color: var(--muted); font-size: 9px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.advisor-result b { font-size: 13px; white-space: nowrap; }
+.advisor-empty { min-height: 66px; margin-top: 10px; display: flex; align-items: center; justify-content: center; gap: 8px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+.advisor-empty .icon { width: 18px; height: 18px; color: var(--warning); }
 
 .support-intro { display: grid; gap: 9px; margin: 2px 0 10px; }
 .support-intro p { margin: 0 2px; color: var(--muted); font-size: 11px; line-height: 1.35; }
 .support-intro .primary { width: 100%; }
+.support-check-trigger { width: 100%; min-height: 47px; padding: 6px 2px; display: grid; grid-template-columns: 28px minmax(0,1fr) 16px; align-items: center; gap: 8px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.support-check-trigger > .icon:first-child { width: 18px; height: 18px; color: var(--accent); }
+.support-check-trigger > .icon:last-child { width: 14px; height: 14px; color: var(--muted); }
+.support-check-trigger strong, .support-check-trigger small { display: block; }
+.support-check-trigger strong { font-size: 11px; }
+.support-check-trigger small { margin-top: 2px; color: var(--muted); font-size: 9px; }
 .support-admin-caption { margin: 5px 2px 13px; }
 .support-admin-caption strong, .support-admin-caption small { display: block; }
 .support-admin-caption strong { font-size: 15px; }
@@ -220,6 +247,22 @@ a { color: inherit; }
 .support-context-choice strong, .support-context-choice small { display: block; }
 .support-context-choice strong { font-size: 11px; }
 .support-context-choice small { margin-top: 3px; color: var(--muted); font-size: 9px; line-height: 1.35; }
+.ticket-draft-state { min-height: 14px; margin: -3px 0 3px; color: var(--success); font-size: 9px; }
+.support-check-summary { min-height: 58px; padding: 3px 1px 11px; display: grid; grid-template-columns: 32px minmax(0,1fr); align-items: center; gap: 9px; border-bottom: 1px solid var(--line); }
+.support-check-summary > .icon { width: 24px; height: 24px; }
+.support-check-summary.ready > .icon { color: var(--success); }
+.support-check-summary.attention > .icon { color: var(--warning); }
+.support-check-summary strong, .support-check-summary small { display: block; }
+.support-check-summary strong { font-size: 13px; }
+.support-check-summary small { margin-top: 3px; color: var(--muted); font-size: 9px; }
+.support-check-list > div { min-height: 49px; padding: 7px 1px; display: grid; grid-template-columns: 28px minmax(0,1fr); align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+.check-state { width: 27px; height: 27px; display: grid; place-items: center; color: var(--muted); }
+.check-state.ok { color: var(--success); }
+.check-state.warn { color: var(--warning); }
+.check-state .icon { width: 17px; height: 17px; }
+.support-check-list strong, .support-check-list small { display: block; }
+.support-check-list strong { font-size: 11px; }
+.support-check-list small { margin-top: 2px; color: var(--muted); font-size: 9px; }
 .ticket-row { grid-template-columns: 30px minmax(0,1fr) auto; }
 .admin-ticket-row { grid-template-columns: minmax(0,1fr) auto; }
 .ticket-copy { min-width: 0; }
@@ -246,6 +289,8 @@ a { color: inherit; }
 .bubble strong { display: block; margin-bottom: 2px; font-size: 10px; opacity: .7; }
 .bubble p { margin: 0; font-size: 13px; white-space: pre-wrap; }
 .bubble time, .bubble small { display: block; margin-top: 4px; font-size: 9px; opacity: .58; text-align: right; }
+.chat-compose-wrap { min-width: 0; }
+.chat-draft-restored { display: block; margin: 0 7px 4px; color: var(--success); font-size: 9px; }
 .chat-compose { position: relative; width: 100%; padding: 5px; display: grid; grid-template-columns: minmax(0,1fr) 40px; gap: 5px; background: var(--surface); border-radius: 13px; box-shadow: 0 9px 28px #00000033; transition: background 160ms ease-out, box-shadow 180ms ease-out; }
 .chat-compose:focus-within { background: var(--surface-alt); box-shadow: 0 12px 34px #0000004d; }
 .chat-compose input { width: 100%; min-width: 0; height: 40px; padding: 0 9px; border: 0; outline: 0; background: transparent; font-size: 13px; }
@@ -314,6 +359,16 @@ a { color: inherit; }
 .reminder-options label:first-of-type { border-top: 0; }
 .reminder-options input { width: 17px; height: 17px; accent-color: var(--accent); }
 .reminder-options span { font-size: 12px; }
+.subscription-passport { display: grid; gap: 12px; }
+.passport-mark { min-height: 50px; display: grid; grid-template-columns: 34px minmax(0,1fr) auto; align-items: center; gap: 9px; padding-bottom: 11px; border-bottom: 1px solid var(--line); }
+.passport-mark > .icon { width: 25px; height: 25px; color: var(--accent); }
+.passport-mark strong, .passport-mark small { display: block; }
+.passport-mark strong { font-size: 13px; }
+.passport-mark small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.subscription-passport dl { margin: 0; }
+.subscription-passport dl > div { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--line); }
+.subscription-passport dt { color: var(--muted); font-size: 10px; }
+.subscription-passport dd { margin: 0; max-width: 67%; overflow: hidden; font-size: 11px; font-weight: 650; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .payment-receipt { display: grid; gap: 12px; }
 .receipt-amount { min-height: 104px; display: grid; justify-items: center; align-content: center; gap: 6px; border-bottom: 1px solid var(--line); }
 .receipt-amount > span, .receipt-amount > span img { width: 34px; height: 34px; }
@@ -375,8 +430,10 @@ a { color: inherit; }
 
 .admin-command-head { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 1px 2px 8px; }
 .admin-command-head h1 { margin: 2px 0 0; font-size: 21px; line-height: 1.1; letter-spacing: -.35px; }
-.admin-command-head > button { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; background: var(--surface); color: var(--accent); cursor: pointer; }
-.admin-command-head > button .icon { width: 18px; height: 18px; }
+.admin-head-actions { display: flex; align-items: center; gap: 4px; }
+.admin-head-actions button { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 9px; background: var(--surface); color: var(--accent); cursor: pointer; }
+.admin-head-actions button[aria-pressed="true"] { background: var(--surface-alt); color: var(--warning); }
+.admin-head-actions button .icon { width: 17px; height: 17px; }
 .admin-overline { display: block; color: var(--muted); font-size: 9px; font-weight: 740; letter-spacing: .09em; text-transform: uppercase; }
 .admin-command-trigger { width: 100%; min-height: 48px; margin-bottom: 10px; padding: 7px 9px; display: grid; grid-template-columns: 28px minmax(0,1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 11px; background: transparent; color: var(--text); text-align: left; cursor: pointer; transition: border-color 150ms ease-out, background 150ms ease-out; }
 .admin-command-trigger:hover, .admin-command-trigger:focus-visible { border-color: color-mix(in srgb,var(--accent) 55%,var(--line)); background: var(--surface); }
@@ -393,7 +450,8 @@ kbd { padding: 3px 5px; border: 1px solid var(--line); border-radius: 5px; color
 .admin-favorites button { min-width: 0; min-height: 58px; padding: 7px 5px; display: grid; align-content: center; justify-items: center; gap: 5px; border-radius: 8px; background: var(--surface-alt); color: var(--text); cursor: pointer; }
 .admin-favorites button .icon { width: 17px; height: 17px; color: var(--accent); }
 .admin-favorites button span { width: 100%; overflow: hidden; font-size: 9px; font-weight: 650; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
-.admin-health { --health-color: var(--success); min-height: 116px; margin-bottom: 8px; padding: 13px; display: grid; grid-template-columns: 78px minmax(0,1fr); align-items: center; gap: 12px; border-radius: 13px; background: var(--surface); }
+.admin-health { --health-color: var(--success); width: 100%; min-height: 116px; margin-bottom: 8px; padding: 13px; display: grid; grid-template-columns: 78px minmax(0,1fr) 17px; align-items: center; gap: 12px; border-radius: 13px; background: var(--surface); color: var(--text); text-align: left; cursor: pointer; transition: background 160ms ease-out; }
+.admin-health:hover, .admin-health:focus-visible { background: color-mix(in srgb,var(--surface) 90%,var(--surface-alt)); }
 .admin-health.attention { --health-color: var(--warning); }
 .admin-health.critical { --health-color: var(--danger); }
 .health-ring { position: relative; width: 76px; height: 76px; display: grid; place-items: center; }
@@ -402,8 +460,11 @@ kbd { padding: 3px 5px; border: 1px solid var(--line); border-radius: 5px; color
 .health-track { stroke: var(--surface-alt); }
 .health-value { stroke: var(--health-color); stroke-linecap: round; stroke-dasharray: 201.06; transition: stroke-dashoffset 320ms var(--ease-ios); }
 .health-ring strong { position: relative; font-size: 21px; letter-spacing: -.5px; }
-.admin-health h2 { margin: 3px 0 5px; font-size: 16px; }
-.admin-health p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.admin-health-copy { min-width: 0; display: block; }
+.admin-health-title { display: block; margin: 3px 0 5px; font-size: 16px; }
+.admin-health-note { display: block; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.health-chevron { color: var(--muted); }
+.health-chevron .icon { width: 15px; height: 15px; }
 .admin-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 8px; }
 .metric { min-width: 0; padding: 11px; background: var(--surface); border-radius: 11px; }
 .metric span { color: var(--muted); font-size: 10px; }
@@ -440,6 +501,30 @@ kbd { padding: 3px 5px; border: 1px solid var(--line); border-radius: 5px; color
 .admin-clear-state strong, .admin-clear-state small { display: block; }
 .admin-clear-state strong { color: var(--text); font-size: 11px; }
 .admin-clear-state small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.health-details .health-score-line { display: flex; align-items: baseline; gap: 6px; margin: -3px 0 5px; }
+.health-score-line strong { color: var(--accent); font-size: 34px; line-height: 1; letter-spacing: -1px; }
+.health-score-line span { color: var(--muted); font-size: 11px; }
+.health-details > div:last-child > button { width: 100%; min-height: 49px; padding: 7px 1px; display: grid; grid-template-columns: 28px minmax(0,1fr) 16px; align-items: center; gap: 8px; border-top: 1px solid var(--line); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.health-details > div:last-child > button > .icon { width: 14px; height: 14px; color: var(--muted); }
+.health-details button strong, .health-details button small { display: block; }
+.health-details button strong { font-size: 11px; }
+.health-details button small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.admin-user-search { margin-bottom: 8px; }
+.admin-user-search > label { display: block; margin: 0 2px 5px; color: var(--muted); font-size: 10px; }
+.admin-user-search > div { display: grid; grid-template-columns: minmax(0,1fr) 42px; gap: 6px; }
+.admin-user-search input { min-width: 0; height: 42px; padding: 0 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); outline: 0; }
+.admin-user-search input:focus { border-color: var(--accent); }
+.admin-user-search button { width: 42px; padding: 0; }
+.admin-user-search button .icon { width: 17px; height: 17px; }
+.admin-user-filters { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); margin: 0 0 8px; border-bottom: 1px solid var(--line); }
+.admin-user-filters button { min-width: 0; min-height: 40px; padding: 4px 2px 6px; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); cursor: pointer; }
+.admin-user-filters button[aria-pressed="true"] { border-bottom-color: var(--accent); color: var(--text); }
+.admin-user-filters span, .admin-user-filters small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-user-filters span { font-size: 9px; font-weight: 650; }
+.admin-user-filters small { margin-top: 2px; font-size: 8px; }
+.admin-user-summary { min-height: 37px; display: flex; align-items: center; justify-content: space-between; gap: 9px; color: var(--muted); font-size: 10px; }
+.admin-user-summary button { min-height: 32px; display: inline-flex; align-items: center; gap: 5px; background: transparent; color: var(--accent); font-size: 10px; font-weight: 650; cursor: pointer; }
+.admin-user-summary button .icon { width: 15px; height: 15px; }
 .admin-form { padding: 12px; background: var(--surface); border-radius: var(--radius); }
 .admin-form h3 { margin: 1px 0 10px; font-size: 15px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
@@ -600,8 +685,11 @@ kbd { padding: 3px 5px; border: 1px solid var(--line); border-radius: 5px; color
   .ticket-user-context, .ticket-state { justify-content: center; }
 }
 @media (max-width: 340px) {
-  .admin-health { grid-template-columns: 66px minmax(0,1fr); padding: 11px; gap: 9px; }
+  .admin-health { grid-template-columns: 66px minmax(0,1fr) 14px; padding: 11px; gap: 8px; }
   .health-ring { width: 64px; height: 64px; }
+  .admin-command-head h1 { font-size: 18px; }
+  .admin-head-actions { gap: 2px; }
+  .admin-head-actions button { width: 31px; height: 34px; }
   .admin-command-trigger kbd { display: none; }
   .setup-qr-card { width: min(70vw,190px); }
   .setup-transfer .setup-copy-button { width: min(70vw,190px); }
