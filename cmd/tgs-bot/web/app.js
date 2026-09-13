@@ -18,13 +18,13 @@ const params = new URLSearchParams(location.search);
 const state = { token: sessionStorage.getItem('tgs_session') || '', data: null, page: params.get('page') || 'home', preview: isPreview, cache: {}, selectedTariffID: '', scrollPositions: {}, supportLoading: false };
 const tr = key => i18n[state.data?.language?.default || 'ru']?.[key] || i18n.ru[key] || key;
 
-let iconSpritePrefix = '/assets/icons.svg?v=20260910-v104';
+let iconSpritePrefix = '/assets/icons.svg?v=20260913-v110';
 const icon = name => `<svg class="icon${name === 'loader' ? ' icon-loader' : ''}" viewBox="0 0 24 24" aria-hidden="true"><use href="${iconSpritePrefix}#icon-${name}"></use></svg>`;
 const paymentLogo = provider => { const ext=['yookassa','cryptobot'].includes(provider)?'jpg':'png'; return `<span class="payment-logo ${esc(provider)}" aria-hidden="true"><img src="/assets/payment-${esc(provider)}.${ext}?v=20260910-v104" alt=""></span>`; };
 
 async function loadIconSprite() {
   try {
-    const response = await fetch('/assets/icons.svg?v=20260910-v104', {cache:'force-cache'});
+    const response = await fetch('/assets/icons.svg?v=20260913-v110', {cache:'force-cache'});
     if (!response.ok) return;
     const parsed = new DOMParser().parseFromString(await response.text(), 'image/svg+xml');
     if (parsed.querySelector('parsererror') || !parsed.querySelector('symbol')) return;
@@ -549,36 +549,60 @@ function moreDetail(key) {
 
 async function loadMore(key) { try { state.cache[key] = await api(key === 'servers' ? '/api/nodes' : '/api/devices'); render(); } catch (e) { state.cache[key] = []; toast(e.message, true); render(); } }
 
+const adminGroups = [
+  ['Система', [
+    ['globe','Язык','Язык интерфейса','language'],
+    ['alert','Режим аварии','Отключить доступ пользователям','emergency'],
+    ['pulse','Диагностика','Ошибки панели и платежей','diagnostics'],
+    ['toggles','Управление функциями','Включение разделов','features'],
+    ['gift','Триал','Срок, трафик и сквады','trial'],
+    ['clock','Доступ после окончания','Временный срок и сквады','grace'],
+    ['link','Интеграции','Remnawave и платежи','integrations'],
+    ['gear','Система','Реферальные бонусы','system']
+  ]],
+  ['Интерфейс', [
+    ['edit','Редактор контента','Тексты и брендинг','content'],
+    ['devices','Sub page','Клиенты подключения','subpage'],
+    ['palette','Оформление','Цветовые шаблоны','theme'],
+    ['plans','Тарифы','Каталог и сквады','tariffs'],
+    ['sort','Разное','Порядок пунктов','more_order']
+  ]],
+  ['Операции', [
+    ['user','Пользователи','Поиск и управление','users'],
+    ['link','Привязка подписки','Перенос на другой Telegram ID','subscription_rebind'],
+    ['megaphone','Рассылка','Создание через Telegram','broadcast'],
+    ['percent','Промокоды','Скидки и лимиты','promos']
+  ]]
+];
+const adminTools = () => adminGroups.flatMap(([group,items])=>items.map(([ico,title,subtitle,key])=>({group,ico,title,subtitle,key,target:`admin:${key}`})));
+const adminFavoritesKey='tgs_admin_favorites_v1';
+function adminFavoriteKeys(){try{const allowed=new Set(adminTools().map(item=>item.key)),saved=JSON.parse(localStorage.getItem(adminFavoritesKey)||'[]');return Array.isArray(saved)?saved.filter(key=>allowed.has(key)).slice(0,6):[]}catch(_){return[]}}
+function saveAdminFavoriteKeys(keys){try{localStorage.setItem(adminFavoritesKey,JSON.stringify(keys.slice(0,6)))}catch(_){}}
+function toggleAdminFavorite(key){const keys=adminFavoriteKeys(),index=keys.indexOf(key);if(index>=0)keys.splice(index,1);else keys.unshift(key);saveAdminFavoriteKeys(keys);return index<0}
+function adminToolRow(item,favorites){const pinned=favorites.includes(item.key);return `<div class="admin-tool-row"><button class="admin-tool-link" data-nav="${item.target}"><span class="icon-box">${icon(item.ico)}</span><span><strong>${esc(item.title)}</strong><small>${esc(item.subtitle)}</small></span></button><button type="button" class="admin-pin ${pinned?'active':''}" data-admin-favorite="${esc(item.key)}" aria-label="${pinned?'Убрать из избранного':'Добавить в избранное'}: ${esc(item.title)}" aria-pressed="${pinned}">${icon('star')}</button></div>`}
+function adminFavorites(){const keys=adminFavoriteKeys(),tools=adminTools();if(!keys.length)return'';const items=keys.map(key=>tools.find(item=>item.key===key)).filter(Boolean);return `<section class="admin-favorites" aria-labelledby="admin-favorites-title"><header><h2 id="admin-favorites-title">Избранное</h2><small>Быстрый доступ</small></header><div>${items.map(item=>`<button data-nav="${item.target}">${icon(item.ico)}<span>${esc(item.title)}</span></button>`).join('')}</div></section>`}
+function adminHealthScore(o){const paymentRate=Number(o.payments_30d)>0?Number(o.successful_payments_30d||0)/Number(o.payments_30d)*100:100;return Math.max(0,Math.min(100,Math.round(100-Number(o.diagnostics||0)*9-Number(o.failed_payments_24h||0)*5-Math.min(12,Number(o.open_tickets||0))*1.5-Math.max(0,100-paymentRate)*.16)))}
+function adminHealth(o){const score=adminHealthScore(o),circumference=201.06,offset=(circumference*(100-score)/100).toFixed(2),tone=score>=85?'healthy':score>=65?'attention':'critical',label=score>=85?'Система стабильна':score>=65?'Нужно внимание':'Есть проблемы';return `<section class="admin-health ${tone}" aria-label="Состояние системы: ${score} из 100"><div class="health-ring"><svg viewBox="0 0 76 76" aria-hidden="true"><circle class="health-track" cx="38" cy="38" r="32"></circle><circle class="health-value" cx="38" cy="38" r="32" style="stroke-dashoffset:${offset}"></circle></svg><strong>${score}</strong></div><div><span class="admin-overline">Состояние системы</span><h2>${label}</h2><p>Показатель обновляется по оплатам, обращениям и диагностике.</p></div></section>`}
+function adminMetric(value,label,detail=''){return `<div class="metric"><span>${esc(label)}</span><strong>${esc(value)}</strong>${detail?`<small>${esc(detail)}</small>`:''}</div>`}
+const adminTrendOptions={revenue:{label:'Выручка',key:'revenue_kopecks',format:value=>money(Number(value||0)/100)},users:{label:'Пользователи',key:'users',format:value=>String(value||0)},payments:{label:'Оплаты',key:'payments',format:value=>String(value||0)}};
+function shortTrendDate(value){const parts=String(value||'').split('-');return parts.length===3?`${parts[2]}.${parts[1]}`:String(value||'')}
+function adminTrend(o){const selected=adminTrendOptions[state.cache.adminTrendMetric]?state.cache.adminTrendMetric:'revenue',meta=adminTrendOptions[selected],trend=o.trends||{},values=(trend[meta.key]||[]).map(Number),labels=trend.labels||[],max=Math.max(1,...values),width=320,height=116,padX=10,padY=13,step=values.length>1?(width-padX*2)/(values.length-1):0,points=values.map((value,index)=>`${(padX+index*step).toFixed(1)},${(height-padY-(value/max)*(height-padY*2)).toFixed(1)}`),total=values.reduce((sum,value)=>sum+value,0),area=points.length?`${padX},${height-padY} ${points.join(' ')} ${padX+(values.length-1)*step},${height-padY}`:'';return `<section class="admin-trend" aria-labelledby="admin-trend-title"><header><div><span class="admin-overline">Последние 7 дней</span><h2 id="admin-trend-title">${esc(meta.label)} · ${esc(meta.format(total))}</h2></div><div class="trend-tabs" role="group" aria-label="Показатель графика">${Object.entries(adminTrendOptions).map(([key,item])=>`<button type="button" data-admin-trend="${key}" aria-pressed="${key===selected}">${esc(item.label)}</button>`).join('')}</div></header><svg class="trend-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(meta.label)} за семь дней"><line x1="${padX}" y1="${height-padY}" x2="${width-padX}" y2="${height-padY}" class="trend-baseline"></line>${area?`<polygon points="${area}" class="trend-area"></polygon><polyline points="${points.join(' ')}" class="trend-line"></polyline>${points.map((point,index)=>{const [cx,cy]=point.split(',');return `<circle cx="${cx}" cy="${cy}" r="3" class="trend-point"><title>${esc(shortTrendDate(labels[index]))}: ${esc(meta.format(values[index]))}</title></circle>`}).join('')}`:''}</svg><footer><span>${esc(shortTrendDate(labels[0]))}</span><span>${esc(shortTrendDate(labels[labels.length-1]))}</span></footer></section>`}
+function adminAttention(o){const items=[];if(Number(o.diagnostics)>0)items.push(['alert','Диагностика',`${o.diagnostics} нерешённых событий`,'admin:diagnostics','danger']);if(Number(o.failed_payments_24h)>0)items.push(['card','Ошибки оплат',`${o.failed_payments_24h} за последние сутки`,'admin:integrations','danger']);if(Number(o.open_tickets)>0)items.push(['support','Поддержка',`${o.open_tickets} открытых обращений`,'support','warning']);if(Number(o.expiring_soon)>0)items.push(['clock','Скоро закончатся',`${o.expiring_soon} подписок за 3 дня`,'admin:users','neutral']);return `<section class="admin-insight" aria-labelledby="admin-attention-title"><header><span><span class="admin-overline">Приоритеты</span><h2 id="admin-attention-title">Центр внимания</h2></span><strong>${items.length}</strong></header>${items.length?`<div class="admin-attention-list">${items.map(([ico,title,subtitle,target,tone])=>`<button data-nav="${target}"><span class="attention-icon ${tone}">${icon(ico)}</span><span><strong>${esc(title)}</strong><small>${esc(subtitle)}</small></span>${icon('arrow')}</button>`).join('')}</div>`:`<div class="admin-clear-state">${icon('check')}<span><strong>Всё спокойно</strong><small>Новых проблем не обнаружено</small></span></div>`}</section>`}
+function adminActivityTitle(item){if(item.kind==='audit')return {update_user:'Изменён пользователь',transfer_subscription:'Перенесена подписка',subscription_rebind:'Перенесена подписка'}[item.title]||item.title||'Действие администратора';if(item.kind!=='payment')return item.title||'Событие';return {yookassa:'ЮKassa',cryptobot:'CryptoBot',lava:'LAVA',wata:'WATA',platega:'Platega',freekassa:'FreeKassa',heleket:'Heleket',pally:'Pally'}[String(item.title||'').toLowerCase()]||item.title||'Оплата'}
+function adminActivitySubtitle(item){const subtitle=String(item.subtitle||'');if(item.kind!=='payment')return subtitle;const status={succeeded:'Оплачено',pending:'Ожидает',processing:'Обрабатывается',failed:'Ошибка',cancelled:'Отменено'};return subtitle.replace(/ · ([a-z_]+)$/i,(_,value)=>` · ${status[value]||value}`)}
+function adminActivityTime(value){const date=new Date(value),seconds=Math.max(0,Math.round((Date.now()-date.getTime())/1000));if(!Number.isFinite(seconds))return'';if(seconds<60)return'сейчас';if(seconds<3600)return`${Math.floor(seconds/60)} мин`;if(seconds<86400)return`${Math.floor(seconds/3600)} ч`;return new Intl.DateTimeFormat('ru-RU',{day:'2-digit',month:'2-digit'}).format(date)}
+function adminActivity(o){const items=Array.isArray(o.activity)?o.activity.slice(0,7):[],icons={user:'user',payment:'card',ticket:'support',audit:'edit'};return `<section class="admin-activity" aria-labelledby="admin-activity-title"><header><span class="admin-overline">В реальном времени</span><h2 id="admin-activity-title">Последние события</h2></header>${items.length?`<div>${items.map(item=>`<button type="button" data-nav="${esc(item.target||'admin')}"><span class="activity-mark">${icon(icons[item.kind]||'pulse')}</span><span><strong>${esc(adminActivityTitle(item))}</strong><small>${esc(adminActivitySubtitle(item))}</small></span><time datetime="${esc(item.created_at||'')}">${esc(adminActivityTime(item.created_at))}</time></button>`).join('')}</div>`:empty('pulse','Событий пока нет')}</section>`}
+function adminCommandResults(query=''){const normalized=query.trim().toLocaleLowerCase('ru'),favorites=adminFavoriteKeys(),tools=adminTools().filter(item=>!normalized||`${item.title} ${item.subtitle} ${item.group}`.toLocaleLowerCase('ru').includes(normalized));return tools.length?tools.map(item=>`<button type="button" class="command-result" data-command-target="${item.target}"><span class="icon-box">${icon(item.ico)}</span><span><strong>${esc(item.title)}</strong><small>${esc(item.group)} · ${esc(item.subtitle)}</small></span>${favorites.includes(item.key)?icon('star'):icon('arrow')}</button>`).join(''):`<div class="command-empty">Ничего не найдено</div>`}
+function openAdminCommand(){openModal('Быстрый переход',`<div class="admin-command"><label class="command-search" for="admin-command-search">${icon('search')}<input id="admin-command-search" autocomplete="off" placeholder="Найти настройку или действие"><kbd>Ctrl K</kbd></label><div class="command-results" id="admin-command-results">${adminCommandResults()}</div></div>`)}
+
 function adminPage() {
-  const groups = [
-    ['Система', [
-      ['globe','Язык','Язык интерфейса','language'],
-      ['alert','Режим аварии','Отключить доступ пользователям','emergency'],
-      ['pulse','Диагностика','Ошибки панели и платежей','diagnostics'],
-      ['toggles','Управление функциями','Включение разделов','features'],
-      ['gift','Триал','Срок, трафик и сквады','trial'],
-	  ['clock','Доступ после окончания','Временный срок и сквады','grace'],
-      ['link','Интеграции','Remnawave и платежи','integrations'],
-      ['gear','Система','Реферальные бонусы','system']
-    ]],
-    ['Интерфейс', [
-      ['edit','Редактор контента','Тексты и брендинг','content'],
-	  ['devices','Sub page','Клиенты подключения','subpage'],
-      ['palette','Оформление','Цветовые шаблоны','theme'],
-      ['plans','Тарифы','Каталог и сквады','tariffs'],
-      ['sort','Разное','Порядок пунктов','more_order']
-    ]],
-    ['Операции', [
-      ['user','Пользователи','Поиск и управление','users'],
-	  ['link','Привязка подписки','Перенос на другой Telegram ID','subscription_rebind'],
-      ['megaphone','Рассылка','Создание через Telegram','broadcast'],
-      ['percent','Промокоды','Скидки и лимиты','promos']
-    ]]
-  ];
   if (!state.cache.overview) loadAdmin('overview');
   const o = state.cache.overview;
-  const menu=groups.map(([title,items])=>`<section class="admin-menu-group" aria-labelledby="admin-group-${esc(title)}"><h2 id="admin-group-${esc(title)}">${esc(title)}</h2><div class="list">${items.map(([ico,itemTitle,sub,key])=>row(ico,itemTitle,sub,`admin:${key}`)).join('')}</div></section>`).join('');
-  return `${o ? `<div class="admin-metrics"><div class="metric"><span>Пользователи</span><strong>${o.users}</strong></div><div class="metric"><span>Активные</span><strong>${o.active_subscriptions}</strong></div><div class="metric"><span>Выручка</span><strong>${money((o.revenue_kopecks || 0)/100)}</strong></div><div class="metric"><span>Ошибки</span><strong>${o.diagnostics}</strong></div></div>` : loadingState()}<div class="admin-menu-groups">${menu}</div>`;
+  const favorites=adminFavoriteKeys();
+  const menu=adminGroups.map(([title,items])=>`<section class="admin-menu-group" aria-labelledby="admin-group-${esc(title)}"><h2 id="admin-group-${esc(title)}">${esc(title)}</h2><div class="admin-tool-list">${items.map(([ico,itemTitle,sub,key])=>adminToolRow({ico,title:itemTitle,subtitle:sub,key,target:`admin:${key}`},favorites)).join('')}</div></section>`).join('');
+  const command=`<header class="admin-command-head"><div><span class="admin-overline">${esc(state.data.content?.brand||'TGS VPN')} Control</span><h1>Командный центр</h1></div><button type="button" data-action="admin-command" aria-label="Открыть быстрый поиск">${icon('search')}</button></header><button type="button" class="admin-command-trigger" data-action="admin-command">${icon('search')}<span><strong>Найти функцию</strong><small>Настройки, пользователи и операции</small></span><kbd>Ctrl K</kbd></button>`;
+  const dashboard=o&&!o.error?`${adminHealth(o)}<div class="admin-metrics">${adminMetric(o.users,'Пользователи',`+${o.new_users_7d||0} за неделю`)}${adminMetric(o.active_subscriptions,'Активные')}${adminMetric(money((o.revenue_kopecks||0)/100),'Выручка')}${adminMetric(o.open_tickets||0,'Тикеты','Открытые')}</div>${adminTrend(o)}${adminAttention(o)}${adminActivity(o)}`:o?.error?empty('alert',o.error):loadingState();
+  return `${command}${adminFavorites()}${dashboard}<div class="admin-menu-groups">${menu}</div>`;
 }
 
 async function loadAdmin(key, path = `/api/admin/${key}`) { try { state.cache[key] = await api(path); render(); } catch (e) { state.cache[key] = {error:e.message}; toast(e.message,true); render(); } }
@@ -780,6 +804,9 @@ document.addEventListener('click', async event => {
   const platformTrigger=event.target.closest('[data-setup-platform-trigger]');if(platformTrigger){setSetupPlatformMenu(platformTrigger.getAttribute('aria-expanded')!=='true');return;}
   const platformOption=event.target.closest('[data-setup-platform-option]');if(platformOption){state.cache.setupPlatform=platformOption.dataset.setupPlatformOption;state.cache.setupClient='';setSetupPlatformMenu(false);render();requestAnimationFrame(()=>$('[data-setup-platform-trigger]')?.focus());tg?.HapticFeedback?.selectionChanged?.();return;}
   if($('.setup-platform-menu:not([hidden])')&&!event.target.closest('[data-platform-control]'))setSetupPlatformMenu(false);
+  const commandTarget=event.target.closest('[data-command-target]');if(commandTarget){closeModal(true);navigate(commandTarget.dataset.commandTarget);return;}
+  const favorite=event.target.closest('[data-admin-favorite]');if(favorite){const added=toggleAdminFavorite(favorite.dataset.adminFavorite);render();toast(added?'Добавлено в избранное':'Убрано из избранного');return;}
+  const trend=event.target.closest('[data-admin-trend]');if(trend){state.cache.adminTrendMetric=trend.dataset.adminTrend;render();return;}
   const navButton=event.target.closest('[data-nav]'); if(navButton){navigate(navButton.dataset.nav);return;}
   if(event.target.closest('[data-close-modal]') || (event.target.matches('[data-modal-backdrop]'))){closeModal();return;}
   const tariffChoice=event.target.closest('[data-select-tariff]');if(tariffChoice){const id=tariffChoice.dataset.selectTariff;if(id===state.selectedTariffID)return;state.selectedTariffID=id;$$('[data-select-tariff]').forEach(card=>{const selected=card.dataset.selectTariff===id;card.classList.toggle('selected',selected);card.setAttribute('aria-pressed',String(selected));const marker=$('.tariff-selection',card);if(marker)marker.innerHTML=selected?`${icon('check')}Выбрано`:''});const tariff=state.data.tariffs.find(item=>item.id===id);const pay=$('.tariff-pay');if(tariff&&pay){pay.dataset.buy=id;$('span',pay).textContent=`${tr('buy')} · ${money(tariff.price_rub)}`;}tg?.HapticFeedback?.selectionChanged?.();return;}
@@ -787,7 +814,7 @@ document.addEventListener('click', async event => {
 	const setupClient=event.target.closest('[data-setup-client]');if(setupClient){state.cache.setupClient=setupClient.dataset.setupClient;render();return;}
 	const connectButton=event.target.closest('[data-open-connect-handoff],[data-retry-connect]');if(connectButton){const platformID=state.cache.setupPlatform,client=setupClients(platformID).find(item=>item.id===state.cache.setupClient),url=state.data.user.subscription.subscription_url||'',shouldOpen=connectButton.matches('[data-open-connect-handoff]');if(!client||!url){toast('Ссылка подключения недоступна',true);return;}const old=connectButton.innerHTML;connectButton.disabled=true;if(shouldOpen)connectButton.innerHTML=`${icon('loader')}<span>Открываем браузер…</span>`;const handoff=await loadConnectHandoff(platformID,client,url,!shouldOpen);if(handoff?.url&&shouldOpen)openBrowserLink(handoff.url);else if(handoff?.error)toast(handoff.error,true);if(document.contains(connectButton)){connectButton.disabled=false;connectButton.innerHTML=old}return;}
   const action=event.target.closest('[data-action]')?.dataset.action;
-  if(action==='new-ticket'){ticketModal();return;} if(action==='new-promo'){promoModal();return;}
+  if(action==='new-ticket'){ticketModal();return;} if(action==='new-promo'){promoModal();return;} if(action==='admin-command'){openAdminCommand();return;}
   if(action==='trial'){const button=event.target.closest('[data-action="trial"]');const old=button?.innerHTML;if(button){button.disabled=true;button.innerHTML=`${icon('loader')}<span>Подключаем…</span>`}try{liveMuteBootstrapUntil=Date.now()+900;await api('/api/trial',{method:'POST',body:'{}'});await loadBootstrap();toast('Пробный период активирован');}catch(e){if(button){button.disabled=false;button.innerHTML=old}toast(e.message,true)}return;}
   if(action==='connect'){navigate('connect');return;}
   const copy=event.target.closest('[data-copy]');if(copy){await navigator.clipboard.writeText(copy.dataset.copy);toast('Ссылка скопирована');return;}
@@ -834,22 +861,31 @@ function collectForm(form) { const out={};$$('[name]',form).forEach(input=>{cons
 function collectSubpageForm(form){return {include_builtins:Boolean(form.elements.include_builtins?.checked),clients:$$('[data-subpage-client]',form).map(row=>({id:$('[name="client_id"]',row).value.trim().toLowerCase(),name:$('[name="client_name"]',row).value.trim(),scheme:$('[name="client_scheme"]',row).value.trim(),install_url:$('[name="client_install_url"]',row).value.trim(),enabled:Boolean($('[name="client_enabled"]',row).checked),featured:Boolean($('[name="client_featured"]',row).checked),all_platforms:Boolean($('[name="client_all_platforms"]',row).checked),platforms:$$('[data-client-platform]:checked',row).map(input=>input.value)}))};}
 
 document.addEventListener('click',async event=>{const status=event.target.closest('[data-ticket-status]');if(!status)return;const [id,value]=status.dataset.ticketStatus.split(':');try{liveMuteSupportUntil=Date.now()+800;const ticket=await api(`/api/admin/tickets/${id}`,{method:'PATCH',body:JSON.stringify({status:value})});replaceTicket(ticket);toast('Статус изменён');render()}catch(e){toast(e.message,true)}});
-document.addEventListener('keydown', event => { const menu=$('.setup-platform-menu:not([hidden])');if(menu&&event.key==='Escape'){setSetupPlatformMenu(false);$('[data-setup-platform-trigger]')?.focus();return}const option=event.target.closest?.('[data-setup-platform-option]');if(option&&['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const options=$$('[data-setup-platform-option]',menu),index=options.indexOf(option),next=event.key==='Home'?0:event.key==='End'?options.length-1:(index+(event.key==='ArrowDown'?1:-1)+options.length)%options.length;options[next]?.focus();return}if(event.target.matches?.('[data-setup-platform-trigger]')&&['ArrowDown','Enter',' '].includes(event.key)){event.preventDefault();setSetupPlatformMenu(true);$('.setup-platform-menu [aria-selected="true"]')?.focus();return}if(event.key==='Escape'&&$('#modal-root').children.length)closeModal(); });
-document.addEventListener('input', event => { if(event.target.matches('input[type="color"]')){event.target.closest('.color-field')?.querySelector('code')?.replaceChildren(event.target.value);const form=event.target.closest('form');if(form)applyTheme({...state.data.theme,...collectForm(form)})}if(event.target.matches('#checkout-promo'))validateCheckoutPromo(event.target); });
+document.addEventListener('keydown', event => {
+  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'&&state.data?.user?.is_admin){event.preventDefault();openAdminCommand();return}
+  const commandResult=event.target.closest?.('[data-command-target]');if(commandResult&&['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const results=$$('[data-command-target]'),index=results.indexOf(commandResult),next=event.key==='Home'?0:event.key==='End'?results.length-1:(index+(event.key==='ArrowDown'?1:-1)+results.length)%results.length;results[next]?.focus();return}
+  if(event.target.matches?.('#admin-command-search')&&event.key==='ArrowDown'){event.preventDefault();$('[data-command-target]')?.focus();return}
+  const menu=$('.setup-platform-menu:not([hidden])');if(menu&&event.key==='Escape'){setSetupPlatformMenu(false);$('[data-setup-platform-trigger]')?.focus();return}const option=event.target.closest?.('[data-setup-platform-option]');if(option&&['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const options=$$('[data-setup-platform-option]',menu),index=options.indexOf(option),next=event.key==='Home'?0:event.key==='End'?options.length-1:(index+(event.key==='ArrowDown'?1:-1)+options.length)%options.length;options[next]?.focus();return}if(event.target.matches?.('[data-setup-platform-trigger]')&&['ArrowDown','Enter',' '].includes(event.key)){event.preventDefault();setSetupPlatformMenu(true);$('.setup-platform-menu [aria-selected="true"]')?.focus();return}if(event.key==='Escape'&&$('#modal-root').children.length)closeModal();
+});
+document.addEventListener('input', event => { if(event.target.matches('input[type="color"]')){event.target.closest('.color-field')?.querySelector('code')?.replaceChildren(event.target.value);const form=event.target.closest('form');if(form)applyTheme({...state.data.theme,...collectForm(form)})}if(event.target.matches('#checkout-promo'))validateCheckoutPromo(event.target);if(event.target.matches('#admin-command-search'))$('#admin-command-results').innerHTML=adminCommandResults(event.target.value); });
 document.addEventListener('change',event=>{if(event.target.matches('[name="client_all_platforms"]')){const fieldset=$('.platform-picker',event.target.closest('[data-subpage-client]'));if(fieldset)fieldset.disabled=event.target.checked}if(event.target.matches('[name="client_featured"]')&&event.target.checked){$$('[name="client_featured"]',event.target.form).forEach(input=>{if(input!==event.target)input.checked=false})}});
 
-let liveController=null,liveConnecting=false,liveReconnectTimer=null,liveBackoff=1000,liveBootstrapLoading=false,liveBootstrapQueued=false,liveMuteBootstrapUntil=0,liveMuteSupportUntil=0;
+let liveController=null,liveConnecting=false,liveReconnectTimer=null,liveBackoff=1000,liveBootstrapLoading=false,liveBootstrapQueued=false,liveMuteBootstrapUntil=0,liveMuteSupportUntil=0,liveOverviewTimer=null;
+function refreshAdminOverviewLive(){if(!state.data?.user?.is_admin||!state.cache.overview)return;clearTimeout(liveOverviewTimer);liveOverviewTimer=setTimeout(async()=>{try{state.cache.overview=await api('/api/admin/overview');if(state.page==='admin')render()}catch(_){/* The next live event retries the dashboard. */}},280)}
 function handleLiveEvent(event) {
   if(event.type==='ready'){
     refreshBootstrapLive();
     if(state.data.user.is_admin&&(state.page==='support'||state.page.startsWith('ticket:')))loadSupportTickets();
+    refreshAdminOverviewLive();
     return;
   }
   if(event.type==='support'){
     if(Date.now()>=liveMuteSupportUntil)loadSupportTickets();
+    refreshAdminOverviewLive();
     return;
   }
   if((event.type==='account'||event.type==='bootstrap')&&Date.now()>=liveMuteBootstrapUntil)refreshBootstrapLive();
+  if(event.type==='account'||event.type==='bootstrap')refreshAdminOverviewLive();
 }
 async function refreshBootstrapLive() {
   if(liveBootstrapLoading){liveBootstrapQueued=true;return}
@@ -920,7 +956,7 @@ async function previewApi(path,options={}) {
   if(path==='/api/nodes')return [{name:'Германия',country_code:'DE',status:'online'},{name:'Нидерланды',country_code:'NL',status:'online'},{name:'Финляндия',country_code:'FI',status:'offline'}];
   if(path==='/api/devices')return [{hwid:'iphone-demo',deviceModel:'iPhone 16 Pro',platform:'iOS',userAgent:'Happ 3.1'},{hwid:'windows-demo',deviceModel:'Windows PC',platform:'Windows',userAgent:'Hiddify'}];
   if(path==='/api/admin/squads')return {internal:[{uuid:'de-main',name:'Германия · Основной'},{uuid:'nl-fast',name:'Нидерланды · Быстрый'}],external:[{uuid:'public',name:'Публичный сквад'}]};
-  if(path.includes('/overview'))return {users:128,active_subscriptions:94,revenue_kopecks:18423000,diagnostics:2};
+  if(path.includes('/overview')){const labels=Array.from({length:7},(_,index)=>new Date(Date.now()-(6-index)*86400000).toISOString().slice(0,10));return {users:128,active_subscriptions:94,open_tickets:5,revenue_kopecks:18423000,diagnostics:2,new_users_7d:17,expiring_soon:8,failed_payments_24h:1,payments_30d:83,successful_payments_30d:78,trends:{labels,users:[1,4,2,3,1,4,2],payments:[6,9,7,13,8,15,11],revenue_kopecks:[119400,248500,139300,387000,199000,449100,328900]},activity:[{kind:'payment',title:'ЮKassa',subtitle:'499 ₽ · succeeded',created_at:new Date(Date.now()-180000).toISOString(),target:'admin:integrations'},{kind:'ticket',title:'Не подключается на iPhone',subtitle:'Новое обращение',created_at:new Date(Date.now()-840000).toISOString(),target:'support'},{kind:'user',title:'@new_user',subtitle:'Новый пользователь',created_at:new Date(Date.now()-1900000).toISOString(),target:'admin:users'},{kind:'audit',title:'subscription_rebind',subtitle:'Перенос подписки',created_at:new Date(Date.now()-3900000).toISOString(),target:'admin:users'}]};}
   if(path.includes('/settings/')){const key=path.split('/').pop(),integrationDefaults={remnawave:{enabled:false,url:'https://panel.example.com',token:'••••••••'},yookassa:{enabled:false,shop_id:'',secret_key:'',email:''},cryptobot:{enabled:false,token:'',testnet:false},lava:{enabled:false,shop_id:'',secret_key:'',additional_key:''},wata:{enabled:false,access_token:'',api_url:'https://api.wata.pro/api/h2h'},platega:{enabled:false,merchant_id:'',secret_key:'',api_url:'https://app.platega.io'},freekassa:{enabled:false,shop_id:'',secret_word:'',secret_word2:''},heleket:{enabled:false,merchant_id:'',api_key:'',api_url:'https://api.heleket.com'},pally:{enabled:false,shop_id:'',api_token:'',api_url:'https://pal24.pro'},notifications:{enabled:false,bot_token:'',chat_id:''}},values={language:state.data.language,emergency:state.data.emergency,features:state.data.features,trial:state.data.trial,grace:state.data.grace,subpage:state.data.subpage,theme:state.data.theme,more_order:{items:state.data.more_order},system:state.data.referral,content:state.data.content,integrations:state.cache.previewIntegrations||(state.cache.previewIntegrations=integrationDefaults)};let value=values[key]||{};if((options.method||'GET').toUpperCase()==='PUT'){const incoming=JSON.parse(options.body||'{}').value||{};value=mergeObjects(value,incoming);if(key==='more_order')state.data.more_order=value.items;else if(key==='integrations')state.cache.previewIntegrations=value;else state.data[key]=value}return {key,value,theme_templates:{telegram:{accent:'#2aabee',background:'#111315',surface:'#1c1f22',surface_alt:'#24282d'},graphite:{accent:'#ffffff',background:'#0c0c0d',surface:'#19191b',surface_alt:'#232326'},emerald:{accent:'#2fbf8f',background:'#101413',surface:'#1a211f',surface_alt:'#222c29'},sand:{accent:'#e7b55e',background:'#14120f',surface:'#211e19',surface_alt:'#2b271f'},ocean:{accent:'#5aa9e6',background:'#0d1217',surface:'#182028',surface_alt:'#222d36'},violet:{accent:'#9b8cff',background:'#111016',surface:'#1d1a25',surface_alt:'#282333'},ruby:{accent:'#e06b78',background:'#151012',surface:'#22191c',surface_alt:'#2e2226'},steel:{accent:'#8ea2b5',background:'#101214',surface:'#1a1e22',surface_alt:'#242a30'}}};}
   if(path==='/api/admin/broadcast')return state.cache['admin:broadcast']||{draft:{id:'demo',text:'Новое сообщение пользователям',source_message_id:15,status:'confirmed',buttons:[]},bot_url:'https://t.me/rwTGS_bot'};
   if(path.includes('/broadcast/draft'))return {draft:{id:'demo',text:'',source_message_id:0,status:'awaiting',buttons:[]},bot_url:'https://t.me/rwTGS_bot'};

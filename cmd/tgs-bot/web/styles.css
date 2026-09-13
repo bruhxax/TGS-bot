@@ -287,10 +287,76 @@ a { color: inherit; }
 .switch input:checked + i { background: var(--accent); }
 .switch input:checked + i::after { transform: translateX(18px); }
 
-.admin-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 10px; }
-.metric { padding: 11px; background: var(--surface); border-radius: 12px; }
+.admin-command-head { min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 1px 2px 8px; }
+.admin-command-head h1 { margin: 2px 0 0; font-size: 21px; line-height: 1.1; letter-spacing: -.35px; }
+.admin-command-head > button { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 10px; background: var(--surface); color: var(--accent); cursor: pointer; }
+.admin-command-head > button .icon { width: 18px; height: 18px; }
+.admin-overline { display: block; color: var(--muted); font-size: 9px; font-weight: 740; letter-spacing: .09em; text-transform: uppercase; }
+.admin-command-trigger { width: 100%; min-height: 48px; margin-bottom: 10px; padding: 7px 9px; display: grid; grid-template-columns: 28px minmax(0,1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 11px; background: transparent; color: var(--text); text-align: left; cursor: pointer; transition: border-color 150ms ease-out, background 150ms ease-out; }
+.admin-command-trigger:hover, .admin-command-trigger:focus-visible { border-color: color-mix(in srgb,var(--accent) 55%,var(--line)); background: var(--surface); }
+.admin-command-trigger > .icon { width: 17px; height: 17px; color: var(--accent); }
+.admin-command-trigger strong, .admin-command-trigger small { display: block; }
+.admin-command-trigger strong { font-size: 12px; }
+.admin-command-trigger small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+kbd { padding: 3px 5px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font-family: inherit; font-size: 8px; white-space: nowrap; }
+.admin-favorites { margin: 0 0 10px; padding: 10px; border-radius: 12px; background: var(--surface); }
+.admin-favorites > header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8px; }
+.admin-favorites h2 { margin: 0; font-size: 13px; }
+.admin-favorites header small { color: var(--muted); font-size: 9px; }
+.admin-favorites > div { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 5px; }
+.admin-favorites button { min-width: 0; min-height: 58px; padding: 7px 5px; display: grid; align-content: center; justify-items: center; gap: 5px; border-radius: 8px; background: var(--surface-alt); color: var(--text); cursor: pointer; }
+.admin-favorites button .icon { width: 17px; height: 17px; color: var(--accent); }
+.admin-favorites button span { width: 100%; overflow: hidden; font-size: 9px; font-weight: 650; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.admin-health { --health-color: var(--success); min-height: 116px; margin-bottom: 8px; padding: 13px; display: grid; grid-template-columns: 78px minmax(0,1fr); align-items: center; gap: 12px; border-radius: 13px; background: var(--surface); }
+.admin-health.attention { --health-color: var(--warning); }
+.admin-health.critical { --health-color: var(--danger); }
+.health-ring { position: relative; width: 76px; height: 76px; display: grid; place-items: center; }
+.health-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.health-ring circle { fill: none; stroke-width: 6; }
+.health-track { stroke: var(--surface-alt); }
+.health-value { stroke: var(--health-color); stroke-linecap: round; stroke-dasharray: 201.06; transition: stroke-dashoffset 320ms var(--ease-ios); }
+.health-ring strong { position: relative; font-size: 21px; letter-spacing: -.5px; }
+.admin-health h2 { margin: 3px 0 5px; font-size: 16px; }
+.admin-health p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
+.admin-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-bottom: 8px; }
+.metric { min-width: 0; padding: 11px; background: var(--surface); border-radius: 11px; }
 .metric span { color: var(--muted); font-size: 10px; }
 .metric strong { display: block; margin-top: 4px; font-size: 18px; }
+.metric small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+.admin-trend { margin-bottom: 8px; padding: 12px 12px 8px; border-radius: 13px; background: var(--surface); }
+.admin-trend > header { min-height: 38px; display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.admin-trend h2 { margin: 3px 0 0; font-size: 15px; }
+.trend-tabs { display: flex; align-items: center; gap: 2px; }
+.trend-tabs button { min-height: 28px; padding: 0 6px; border-bottom: 2px solid transparent; background: transparent; color: var(--muted); font-size: 8px; font-weight: 680; cursor: pointer; }
+.trend-tabs button[aria-pressed="true"] { border-bottom-color: var(--accent); color: var(--text); }
+.trend-chart { width: 100%; height: auto; display: block; overflow: visible; }
+.trend-baseline { stroke: var(--line); stroke-width: 1; }
+.trend-area { fill: color-mix(in srgb,var(--accent) 11%,transparent); }
+.trend-line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.trend-point { fill: var(--surface); stroke: var(--accent); stroke-width: 1.5; }
+.admin-trend > footer { display: flex; justify-content: space-between; margin: -5px 3px 0; color: var(--muted); font-size: 8px; }
+.admin-insight, .admin-activity { margin-bottom: 8px; padding: 11px; border-radius: 13px; background: var(--surface); }
+.admin-insight > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px; }
+.admin-insight h2, .admin-activity h2 { margin: 3px 0 0; font-size: 15px; }
+.admin-insight > header > strong { min-width: 24px; color: var(--accent); font-size: 16px; text-align: right; }
+.admin-attention-list button, .admin-activity > div > button { width: 100%; min-height: 48px; padding: 7px 1px; display: grid; grid-template-columns: 30px minmax(0,1fr) 16px; align-items: center; gap: 8px; border-top: 1px solid var(--line); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.admin-attention-list button:first-child, .admin-activity > div > button:first-child { border-top: 0; }
+.admin-attention-list button > span:nth-child(2) strong, .admin-attention-list button > span:nth-child(2) small, .admin-activity button > span:nth-child(2) strong, .admin-activity button > span:nth-child(2) small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-attention-list strong, .admin-activity button strong { font-size: 11px; }
+.admin-attention-list small, .admin-activity button small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.admin-attention-list button > .icon { width: 14px; height: 14px; color: var(--muted); }
+.attention-icon, .activity-mark { width: 28px; height: 28px; display: grid; place-items: center; color: var(--accent); }
+.attention-icon .icon, .activity-mark .icon { width: 17px; height: 17px; }
+.attention-icon.danger { color: var(--danger); }
+.attention-icon.warning { color: var(--warning); }
+.admin-clear-state { min-height: 54px; display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--line); color: var(--success); }
+.admin-clear-state > .icon { width: 22px; height: 22px; }
+.admin-clear-state strong, .admin-clear-state small { display: block; }
+.admin-clear-state strong { color: var(--text); font-size: 11px; }
+.admin-clear-state small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.admin-activity > header { margin-bottom: 7px; }
+.admin-activity > div > button { grid-template-columns: 30px minmax(0,1fr) auto; }
+.admin-activity time { color: var(--muted); font-size: 8px; white-space: nowrap; }
 .admin-form { padding: 12px; background: var(--surface); border-radius: var(--radius); }
 .admin-form h3 { margin: 1px 0 10px; font-size: 15px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8px; }
@@ -391,6 +457,34 @@ a { color: inherit; }
 
 .admin-menu-groups { display: grid; gap: 16px; }
 .admin-menu-group h2 { margin: 0 2px 7px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.admin-tool-list { overflow: hidden; border-radius: var(--radius); background: var(--surface); }
+.admin-tool-row { min-height: 52px; display: grid; grid-template-columns: minmax(0,1fr) 44px; border-top: 1px solid var(--line); }
+.admin-tool-row:first-child { border-top: 0; }
+.admin-tool-link { min-width: 0; padding: 8px 3px 8px 11px; display: grid; grid-template-columns: 31px minmax(0,1fr); align-items: center; gap: 9px; background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.admin-tool-link .icon-box { width: 29px; height: 29px; display: grid; place-items: center; color: var(--accent); }
+.admin-tool-link .icon { width: 18px; height: 18px; }
+.admin-tool-link strong, .admin-tool-link small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-tool-link strong { font-size: 12px; }
+.admin-tool-link small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.admin-pin { display: grid; place-items: center; background: transparent; color: var(--muted); cursor: pointer; }
+.admin-pin .icon { width: 17px; height: 17px; }
+.admin-pin.active { color: var(--accent); }
+.admin-pin.active .icon { fill: color-mix(in srgb,var(--accent) 22%,transparent); }
+.admin-command { display: grid; gap: 9px; }
+.command-search { min-height: 45px; padding: 0 9px; display: grid; grid-template-columns: 19px minmax(0,1fr) auto; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-alt); color: var(--muted); }
+.command-search > .icon { width: 17px; height: 17px; }
+.command-search input { min-width: 0; height: 43px; padding: 0; border: 0; outline: 0; background: transparent; color: var(--text); }
+.command-results { max-height: min(58dvh,480px); overflow-y: auto; }
+.command-result { width: 100%; min-height: 50px; padding: 7px 3px; display: grid; grid-template-columns: 31px minmax(0,1fr) 18px; align-items: center; gap: 9px; border-top: 1px solid var(--line); background: transparent; color: var(--text); text-align: left; cursor: pointer; }
+.command-result:first-child { border-top: 0; }
+.command-result:hover, .command-result:focus-visible { background: var(--surface-alt); }
+.command-result .icon-box { width: 29px; height: 29px; display: grid; place-items: center; color: var(--accent); }
+.command-result .icon { width: 16px; height: 16px; }
+.command-result strong, .command-result small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.command-result strong { font-size: 11px; }
+.command-result small { margin-top: 2px; color: var(--muted); font-size: 9px; }
+.command-result > .icon:last-child { color: var(--muted); }
+.command-empty { padding: 27px 10px; color: var(--muted); font-size: 11px; text-align: center; }
 
 .legal-document { width: min(100%, 620px); margin: 0 auto; padding: 1px 4px 28px; color: color-mix(in srgb, var(--text) 91%, var(--muted)); font-size: 13px; line-height: 1.58; }
 .legal-document h3 { margin: 24px 0 8px; color: var(--text); font-size: 15px; line-height: 1.3; letter-spacing: -.12px; }
@@ -417,10 +511,15 @@ a { color: inherit; }
   .tariff-list { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 430px) {
+  .admin-trend > header { display: grid; }
+  .trend-tabs { justify-self: start; }
   .ticket-context { grid-template-columns: 1fr; gap: 5px; }
   .ticket-user-context, .ticket-state { justify-content: center; }
 }
 @media (max-width: 340px) {
+  .admin-health { grid-template-columns: 66px minmax(0,1fr); padding: 11px; gap: 9px; }
+  .health-ring { width: 64px; height: 64px; }
+  .admin-command-trigger kbd { display: none; }
   .setup-qr-card { width: min(70vw,190px); }
   .setup-transfer .setup-copy-button { width: min(70vw,190px); }
   .subscription-fact { padding: 0 8px; grid-template-columns: 23px minmax(0,1fr); gap: 5px; }

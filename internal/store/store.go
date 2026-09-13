@@ -986,8 +986,93 @@ func (s *Store) ReferralCount(ctx context.Context, id int64) (int, error) {
 func (s *Store) Overview(ctx context.Context) (map[string]any, error) {
 	var users, active, tickets, diagnostics int
 	var revenue int64
-	e := s.DB.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM users),(SELECT COUNT(*) FROM users WHERE subscription_status='ACTIVE'),(SELECT COUNT(*) FROM tickets WHERE status<>'closed'),(SELECT COALESCE(SUM(amount_kopecks),0) FROM payments WHERE status='succeeded'),(SELECT COUNT(*) FROM diagnostics WHERE resolved=FALSE)`).Scan(&users, &active, &tickets, &revenue, &diagnostics)
-	return map[string]any{"users": users, "active_subscriptions": active, "open_tickets": tickets, "revenue_kopecks": revenue, "diagnostics": diagnostics}, e
+	if err := s.DB.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM users),(SELECT COUNT(*) FROM users WHERE subscription_status='ACTIVE'),(SELECT COUNT(*) FROM tickets WHERE status<>'closed'),(SELECT COALESCE(SUM(amount_kopecks),0) FROM payments WHERE status='succeeded'),(SELECT COUNT(*) FROM diagnostics WHERE resolved=FALSE)`).Scan(&users, &active, &tickets, &revenue, &diagnostics); err != nil {
+		return nil, err
+	}
+
+	var newUsers7d, expiringSoon, failedPayments24h, payments30d, successfulPayments30d int
+	if err := s.DB.QueryRowContext(ctx, `SELECT
+ (SELECT COUNT(*) FROM users WHERE created_at>=NOW()-INTERVAL '7 days'),
+ (SELECT COUNT(*) FROM users WHERE subscription_status='ACTIVE' AND expires_at>NOW() AND expires_at<=NOW()+INTERVAL '3 days'),
+ (SELECT COUNT(*) FROM payments WHERE status IN ('failed','cancelled') AND created_at>=NOW()-INTERVAL '24 hours'),
+ (SELECT COUNT(*) FROM payments WHERE created_at>=NOW()-INTERVAL '30 days'),
+ (SELECT COUNT(*) FROM payments WHERE status='succeeded' AND created_at>=NOW()-INTERVAL '30 days')`).Scan(&newUsers7d, &expiringSoon, &failedPayments24h, &payments30d, &successfulPayments30d); err != nil {
+		return nil, err
+	}
+
+	trendRows, err := s.DB.QueryContext(ctx, `WITH days AS (
+ SELECT generate_series(CURRENT_DATE-INTERVAL '6 days',CURRENT_DATE,INTERVAL '1 day')::date AS day
+), user_daily AS (
+ SELECT created_at::date AS day,COUNT(*) AS users FROM users WHERE created_at>=CURRENT_DATE-INTERVAL '6 days' GROUP BY created_at::date
+), payment_daily AS (
+ SELECT created_at::date AS day,
+        COUNT(*) FILTER(WHERE status='succeeded') AS payments,
+        COALESCE(SUM(amount_kopecks) FILTER(WHERE status='succeeded'),0) AS revenue
+ FROM payments WHERE created_at>=CURRENT_DATE-INTERVAL '6 days' GROUP BY created_at::date
+)
+SELECT TO_CHAR(days.day,'YYYY-MM-DD'),COALESCE(user_daily.users,0),COALESCE(payment_daily.payments,0),COALESCE(payment_daily.revenue,0)
+FROM days LEFT JOIN user_daily USING(day) LEFT JOIN payment_daily USING(day) ORDER BY days.day`)
+	if err != nil {
+		return nil, err
+	}
+	labels, userTrend, paymentTrend, revenueTrend := []string{}, []int{}, []int{}, []int64{}
+	for trendRows.Next() {
+		var label string
+		var userCount, paymentCount int
+		var dayRevenue int64
+		if err = trendRows.Scan(&label, &userCount, &paymentCount, &dayRevenue); err != nil {
+			trendRows.Close()
+			return nil, err
+		}
+		labels = append(labels, label)
+		userTrend = append(userTrend, userCount)
+		paymentTrend = append(paymentTrend, paymentCount)
+		revenueTrend = append(revenueTrend, dayRevenue)
+	}
+	if err = trendRows.Close(); err != nil {
+		return nil, err
+	}
+	if err = trendRows.Err(); err != nil {
+		return nil, err
+	}
+
+	activityRows, err := s.DB.QueryContext(ctx, `SELECT kind,title,subtitle,created_at,target FROM (
+ SELECT 'user'::text AS kind,COALESCE(NULLIF('@'||username,'@'),NULLIF(first_name,''),'ID '||telegram_id::text) AS title,'Новый пользователь'::text AS subtitle,created_at,'admin:users'::text AS target FROM users
+ UNION ALL
+ SELECT 'payment',provider,TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM (amount_kopecks/100.0)::numeric(12,2)::text))||' ₽ · '||status,created_at,'admin:integrations' FROM payments
+ UNION ALL
+ SELECT 'ticket',subject,'Новое обращение',created_at,'support' FROM tickets
+ UNION ALL
+ SELECT 'audit',action,COALESCE(NULLIF(reason,''),'Действие администратора'),created_at,'admin:users' FROM admin_audit
+) recent ORDER BY created_at DESC LIMIT 10`)
+	if err != nil {
+		return nil, err
+	}
+	activity := []map[string]any{}
+	for activityRows.Next() {
+		var kind, title, subtitle, target string
+		var createdAt time.Time
+		if err = activityRows.Scan(&kind, &title, &subtitle, &createdAt, &target); err != nil {
+			activityRows.Close()
+			return nil, err
+		}
+		activity = append(activity, map[string]any{"kind": kind, "title": title, "subtitle": subtitle, "created_at": createdAt, "target": target})
+	}
+	if err = activityRows.Close(); err != nil {
+		return nil, err
+	}
+	if err = activityRows.Err(); err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"users": users, "active_subscriptions": active, "open_tickets": tickets,
+		"revenue_kopecks": revenue, "diagnostics": diagnostics, "new_users_7d": newUsers7d,
+		"expiring_soon": expiringSoon, "failed_payments_24h": failedPayments24h,
+		"payments_30d": payments30d, "successful_payments_30d": successfulPayments30d,
+		"trends":   map[string]any{"labels": labels, "users": userTrend, "payments": paymentTrend, "revenue_kopecks": revenueTrend},
+		"activity": activity,
+	}, nil
 }
 func (s *Store) AllTelegramIDs(ctx context.Context) ([]int64, error) {
 	rows, e := s.DB.QueryContext(ctx, `SELECT telegram_id FROM users WHERE is_blocked=FALSE`)
