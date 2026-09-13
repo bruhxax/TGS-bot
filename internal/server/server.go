@@ -36,6 +36,7 @@ func (s *Server) Handler(static fs.FS) http.Handler {
 
 	mux.Handle("GET /api/bootstrap", s.auth(http.HandlerFunc(s.bootstrap)))
 	mux.Handle("GET /api/events", s.auth(http.HandlerFunc(s.events)))
+	mux.Handle("PUT /api/preferences/subscription-reminder", s.auth(http.HandlerFunc(s.subscriptionReminder)))
 	mux.Handle("POST /api/trial", s.auth(http.HandlerFunc(s.trial)))
 	mux.Handle("GET /api/tickets", s.auth(http.HandlerFunc(s.tickets)))
 	mux.Handle("POST /api/tickets", s.auth(http.HandlerFunc(s.createTicket)))
@@ -196,7 +197,7 @@ func tariffDTO(t store.Tariff) map[string]any {
 	return map[string]any{"id": t.ID, "name": t.Name, "description": t.Description, "price_rub": float64(t.PriceKopecks) / 100, "days": t.Days, "traffic_gb": t.TrafficGB, "device_limit": t.DeviceLimit, "internal_squads": t.InternalSquads, "external_squad_uuid": t.ExternalSquadUUID, "active": t.Active, "pinned": t.Pinned, "position": t.Position}
 }
 func paymentDTO(p store.Payment) map[string]any {
-	return map[string]any{"id": p.ID, "provider": p.Provider, "status": p.Status, "amount_rub": float64(p.AmountKopecks) / 100, "promo_code": p.PromoCode, "snapshot": p.Snapshot, "created_at": p.CreatedAt, "paid_at": p.PaidAt}
+	return map[string]any{"id": p.ID, "merchant_order_id": p.MerchantOrderID, "provider": p.Provider, "status": p.Status, "amount_rub": float64(p.AmountKopecks) / 100, "promo_code": p.PromoCode, "snapshot": p.Snapshot, "created_at": p.CreatedAt, "paid_at": p.PaidAt}
 }
 
 func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
@@ -214,7 +215,8 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	tariffs, _ := s.Store.Tariffs(r.Context(), false)
 	tickets, _ := s.Store.Tickets(r.Context(), &u.ID)
 	history, _ := s.Store.PaymentsByUser(r.Context(), u.ID)
-	refs, _ := s.Store.ReferralCount(r.Context(), u.ID)
+	refs, rewardedRefs, _ := s.Store.ReferralStats(r.Context(), u.ID)
+	reminder, _ := s.Store.SubscriptionReminder(r.Context(), u.ID)
 	tds := make([]any, 0, len(tariffs))
 	for _, t := range tariffs {
 		tds = append(tds, tariffDTO(t))
@@ -225,6 +227,7 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	}
 	sys, _ := s.Store.Setting(r.Context(), "system")
 	sys["count"] = refs
+	sys["rewarded_count"] = rewardedRefs
 	sys["link"] = "https://t.me/" + s.BotUsername + "?start=" + u.ReferralCode
 	userDTO := publicUser(*u)
 	object(userDTO["subscription"])["connected_devices"] = s.connectedDeviceCount(r.Context(), *u)
@@ -238,7 +241,25 @@ func (s *Server) bootstrap(w http.ResponseWriter, r *http.Request) {
 	for _, item := range definitions {
 		methods = append(methods, map[string]any{"id": item.id, "name": item.name, "description": item.description, "enabled": boolean(object(integrations[item.id])["enabled"])})
 	}
-	writeJSON(w, 200, map[string]any{"user": userDTO, "content": content, "features": features, "trial": trial, "theme": theme, "language": language, "emergency": emergency, "more_order": more["items"], "tariffs": tds, "tickets": tickets, "payments": pds, "referral": sys, "payment_methods": methods, "subpage": subpage})
+	writeJSON(w, 200, map[string]any{"user": userDTO, "content": content, "features": features, "trial": trial, "theme": theme, "language": language, "emergency": emergency, "more_order": more["items"], "tariffs": tds, "tickets": tickets, "payments": pds, "referral": sys, "payment_methods": methods, "subpage": subpage, "subscription_reminder": reminder})
+}
+
+func (s *Server) subscriptionReminder(w http.ResponseWriter, r *http.Request) {
+	var body store.SubscriptionReminder
+	if !decode(w, r, &body) {
+		return
+	}
+	allowed := map[int]bool{1: true, 3: true, 7: true, 14: true}
+	if !allowed[body.DaysBefore] {
+		writeError(w, 400, "Выберите срок напоминания")
+		return
+	}
+	reminder, err := s.Store.SetSubscriptionReminder(r.Context(), current(r).ID, body)
+	if err != nil {
+		writeError(w, 500, "Не удалось сохранить напоминание")
+		return
+	}
+	writeJSON(w, 200, reminder)
 }
 
 func (s *Server) trial(w http.ResponseWriter, r *http.Request) {

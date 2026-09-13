@@ -101,6 +101,11 @@ type Diagnostic struct {
 	CreatedAt time.Time      `json:"created_at"`
 }
 
+type SubscriptionReminder struct {
+	Enabled    bool `json:"enabled"`
+	DaysBefore int  `json:"days_before"`
+}
+
 type Broadcast struct {
 	ID              string              `json:"id"`
 	AdminUserID     int64               `json:"admin_user_id"`

@@ -41,10 +41,31 @@ func (s *Server) RunMaintenance(ctx context.Context) {
 		s.recoverPayments(ctx)
 		s.recoverBroadcasts(ctx)
 		s.grantExpiredAccess(ctx)
+		s.sendSubscriptionReminders(ctx)
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+		}
+	}
+}
+
+func (s *Server) sendSubscriptionReminders(ctx context.Context) {
+	users, err := s.Store.ClaimDueSubscriptionReminders(ctx)
+	if err != nil {
+		s.Logger.Warn("claim subscription reminders", "error", err)
+		return
+	}
+	for _, user := range users {
+		if user.ExpiresAt == nil {
+			continue
+		}
+		days := max(1, int(math.Ceil(time.Until(*user.ExpiresAt).Hours()/24)))
+		values := map[string]string{"days": strconv.Itoa(days), "date": user.ExpiresAt.Format("02.01.2006")}
+		markup := map[string]any{"inline_keyboard": []any{[]any{telegram.WebAppButton("Продлить подписку", s.Config.MiniAppURL("tariffs"))}}}
+		if err = s.sendContentMessage(ctx, user.TelegramID, "subscription_reminder_message", "<b>Подписка скоро закончится</b>\n\nОсталось <b>{days}</b> дн. — до {date}.", values, markup); err != nil {
+			_ = s.Store.ReleaseSubscriptionReminder(context.Background(), user.ID, *user.ExpiresAt)
+			s.record(context.Background(), "reminders", "Не удалось отправить напоминание о подписке", map[string]any{"error": err.Error(), "user_id": user.ID})
 		}
 	}
 }

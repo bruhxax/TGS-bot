@@ -109,6 +109,12 @@ CREATE TABLE IF NOT EXISTS subscription_grace_delivery (
  PRIMARY KEY(user_id,source_expire_at)
 );
 CREATE INDEX IF NOT EXISTS subscription_grace_expire_idx ON subscription_grace_delivery(user_id,grace_expire_at) WHERE grace_expire_at IS NOT NULL;
+CREATE TABLE IF NOT EXISTS subscription_reminders (
+ user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+ enabled BOOLEAN NOT NULL DEFAULT FALSE, days_before INT NOT NULL DEFAULT 3,
+ notified_expire_at TIMESTAMPTZ, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+ CHECK(days_before IN (1,3,7,14))
+);
 CREATE TABLE IF NOT EXISTS broadcasts (
  id UUID PRIMARY KEY DEFAULT gen_random_uuid(), admin_user_id BIGINT NOT NULL REFERENCES users(id), text TEXT NOT NULL,
  buttons JSONB NOT NULL DEFAULT '[]'::jsonb, status VARCHAR(20) NOT NULL DEFAULT 'draft', sent_count INT NOT NULL DEFAULT 0,
@@ -287,6 +293,7 @@ var DefaultSettings = map[string]map[string]any{
 		"emergency_message":             "Сервис временно недоступен. Мы уже работаем над восстановлением.",
 		"myid_message":                  "Ваш Telegram ID: <code>{id}</code>",
 		"payment_success_message":       "<b>Оплата прошла</b>\nПодписка обновлена.",
+		"subscription_reminder_message": "<b>Подписка скоро закончится</b>\n\nОсталось <b>{days}</b> дн. — до {date}.",
 		"support_reply_message":         "Поддержка ответила в тикете «<b>{subject}</b>». Откройте Mini App.",
 		"full_block_message":            "Доступ к кабинету и VPN временно заблокирован администратором.",
 		"admin_only_message":            "Команда доступна только администратору.",
@@ -978,10 +985,62 @@ func (s *Store) UpdateUserAdmin(ctx context.Context, id int64, blocked, admin *b
 	}
 	return nil
 }
+func (s *Store) ReferralStats(ctx context.Context, id int64) (total, rewarded int, err error) {
+	err = s.DB.QueryRowContext(ctx, `SELECT COUNT(*),COUNT(*) FILTER(WHERE referral_rewarded=TRUE) FROM users WHERE referred_by_id=$1`, id).Scan(&total, &rewarded)
+	return
+}
 func (s *Store) ReferralCount(ctx context.Context, id int64) (int, error) {
-	var n int
-	e := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE referred_by_id=$1`, id).Scan(&n)
-	return n, e
+	total, _, err := s.ReferralStats(ctx, id)
+	return total, err
+}
+func (s *Store) SubscriptionReminder(ctx context.Context, userID int64) (SubscriptionReminder, error) {
+	reminder := SubscriptionReminder{DaysBefore: 3}
+	err := s.DB.QueryRowContext(ctx, `SELECT enabled,days_before FROM subscription_reminders WHERE user_id=$1`, userID).Scan(&reminder.Enabled, &reminder.DaysBefore)
+	if errors.Is(err, sql.ErrNoRows) {
+		return reminder, nil
+	}
+	return reminder, err
+}
+func (s *Store) SetSubscriptionReminder(ctx context.Context, userID int64, reminder SubscriptionReminder) (SubscriptionReminder, error) {
+	err := s.DB.QueryRowContext(ctx, `INSERT INTO subscription_reminders(user_id,enabled,days_before,notified_expire_at)
+ VALUES($1,$2,$3,NULL) ON CONFLICT(user_id) DO UPDATE SET enabled=EXCLUDED.enabled,days_before=EXCLUDED.days_before,
+ notified_expire_at=CASE WHEN subscription_reminders.days_before<>EXCLUDED.days_before OR subscription_reminders.enabled<>EXCLUDED.enabled THEN NULL ELSE subscription_reminders.notified_expire_at END,
+ updated_at=NOW() RETURNING enabled,days_before`, userID, reminder.Enabled, reminder.DaysBefore).Scan(&reminder.Enabled, &reminder.DaysBefore)
+	return reminder, err
+}
+func (s *Store) ClaimDueSubscriptionReminders(ctx context.Context) ([]User, error) {
+	rows, err := s.DB.QueryContext(ctx, `UPDATE subscription_reminders r SET notified_expire_at=u.expires_at,updated_at=NOW()
+ FROM users u WHERE u.id=r.user_id AND r.enabled=TRUE AND u.is_blocked=FALSE AND u.subscription_status='ACTIVE'
+ AND u.expires_at>NOW() AND u.expires_at<=NOW()+make_interval(days=>r.days_before)
+ AND r.notified_expire_at IS DISTINCT FROM u.expires_at RETURNING r.user_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []int64{}
+	for rows.Next() {
+		var id int64
+		if err = rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	users := make([]User, 0, len(ids))
+	for _, id := range ids {
+		user, loadErr := s.UserByID(ctx, id)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		users = append(users, user)
+	}
+	return users, nil
+}
+func (s *Store) ReleaseSubscriptionReminder(ctx context.Context, userID int64, expiresAt time.Time) error {
+	_, err := s.DB.ExecContext(ctx, `UPDATE subscription_reminders SET notified_expire_at=NULL,updated_at=NOW() WHERE user_id=$1 AND notified_expire_at=$2`, userID, expiresAt)
+	return err
 }
 func (s *Store) Overview(ctx context.Context) (map[string]any, error) {
 	var users, active, tickets, diagnostics int
@@ -1036,42 +1095,12 @@ FROM days LEFT JOIN user_daily USING(day) LEFT JOIN payment_daily USING(day) ORD
 		return nil, err
 	}
 
-	activityRows, err := s.DB.QueryContext(ctx, `SELECT kind,title,subtitle,created_at,target FROM (
- SELECT 'user'::text AS kind,COALESCE(NULLIF('@'||username,'@'),NULLIF(first_name,''),'ID '||telegram_id::text) AS title,'Новый пользователь'::text AS subtitle,created_at,'admin:users'::text AS target FROM users
- UNION ALL
- SELECT 'payment',provider,TRIM(TRAILING '.' FROM TRIM(TRAILING '0' FROM (amount_kopecks/100.0)::numeric(12,2)::text))||' ₽ · '||status,created_at,'admin:integrations' FROM payments
- UNION ALL
- SELECT 'ticket',subject,'Новое обращение',created_at,'support' FROM tickets
- UNION ALL
- SELECT 'audit',action,COALESCE(NULLIF(reason,''),'Действие администратора'),created_at,'admin:users' FROM admin_audit
-) recent ORDER BY created_at DESC LIMIT 10`)
-	if err != nil {
-		return nil, err
-	}
-	activity := []map[string]any{}
-	for activityRows.Next() {
-		var kind, title, subtitle, target string
-		var createdAt time.Time
-		if err = activityRows.Scan(&kind, &title, &subtitle, &createdAt, &target); err != nil {
-			activityRows.Close()
-			return nil, err
-		}
-		activity = append(activity, map[string]any{"kind": kind, "title": title, "subtitle": subtitle, "created_at": createdAt, "target": target})
-	}
-	if err = activityRows.Close(); err != nil {
-		return nil, err
-	}
-	if err = activityRows.Err(); err != nil {
-		return nil, err
-	}
-
 	return map[string]any{
 		"users": users, "active_subscriptions": active, "open_tickets": tickets,
 		"revenue_kopecks": revenue, "diagnostics": diagnostics, "new_users_7d": newUsers7d,
 		"expiring_soon": expiringSoon, "failed_payments_24h": failedPayments24h,
 		"payments_30d": payments30d, "successful_payments_30d": successfulPayments30d,
-		"trends":   map[string]any{"labels": labels, "users": userTrend, "payments": paymentTrend, "revenue_kopecks": revenueTrend},
-		"activity": activity,
+		"trends": map[string]any{"labels": labels, "users": userTrend, "payments": paymentTrend, "revenue_kopecks": revenueTrend},
 	}, nil
 }
 func (s *Store) AllTelegramIDs(ctx context.Context) ([]int64, error) {

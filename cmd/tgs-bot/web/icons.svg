@@ -39,4 +39,8 @@
   <symbol id="icon-search" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21l-4.35-4.35M19 11a8 8 0 1 1-16 0a8 8 0 0 1 16 0"/></symbol>
   <symbol id="icon-star" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m12 3l2.78 5.63l6.22.9l-4.5 4.39l1.06 6.2L12 17.2l-5.56 2.92l1.06-6.2L3 9.53l6.22-.9z"/></symbol>
   <symbol id="icon-chart" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 19V9m6 10V5m6 14v-7m4 7H2"/></symbol>
+  <symbol id="icon-bell" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+  <symbol id="icon-calendar" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 3v3m10-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1m3 8h3v3H8z"/></symbol>
+  <symbol id="icon-receipt" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3h14v18l-3-2l-2 2l-2-2l-2 2l-2-2l-3 2zm4 5h6m-6 4h6m-6 4h3"/></symbol>
+  <symbol id="icon-share" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 16V4m-4 4l4-4l4 4M5 12v8h14v-8"/></symbol>
 </svg>

@@ -183,6 +183,9 @@ func openConnectHandoff(secret, token string, now time.Time) (connectHandoff, er
 	if err != nil {
 		return payload, err
 	}
+	if base64.RawURLEncoding.EncodeToString(sealed) != token {
+		return payload, fmt.Errorf("invalid token")
+	}
 	gcm, err := connectCipher(secret)
 	if err != nil {
 		return payload, err
